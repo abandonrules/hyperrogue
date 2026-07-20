@@ -1,3 +1,6 @@
+// Relative Hell: implemetation of the underlying math
+// Copyright (C) 2022-2025 Zeno Rogue, see '../../hyper.cpp' for details
+
 #include "../rogueviz.h"
 
 namespace hr {
@@ -15,8 +18,8 @@ struct ads_point : shiftpoint {
 /** similarly, ads_matrix represents a transformation of the universal cover space */
 struct ads_matrix : shiftmatrix {
   ads_matrix(transmatrix _h = Id, ld _s = 0) { T = _h; shift = _s; }
-  ads_point operator* (ads_point) const;
-  ads_matrix operator* (ads_matrix) const;
+  ads_point operator* (const ads_point&) const;
+  ads_matrix operator* (const ads_matrix&) const;
   ads_point operator* (const hyperpoint& h) const { return ads_point(T*h, shift); }
   ads_matrix operator* (const transmatrix& h) const { return ads_matrix(T*h, shift); }
   ads_matrix(shiftmatrix _s) : shiftmatrix(_s) {}
@@ -51,57 +54,18 @@ void adjust_to_zero(ads_matrix& V, pair<cell*, int>& g, ld plev) {
   g.second = 0;
   }
 
-/** by how many cycles should we shift */
-ld get_shift_cycles(ld shift) {
-  return floor(shift / TAU + .5) * TAU;
+using twist::chg_shift;
+
+ads_point ads_matrix::operator*(const ads_point& h) const {
+  return ads_point(twist::nmul(self, h));
   }
 
-/** this is uzpush(-x) */
-transmatrix chg_shift(ld x) {
-  return cspin(2, 3, x) * cspin(0, 1, x);
-  }
-
-ads_point ads_matrix::operator*(ads_point h) const {
-  auto& T = *this;
-  optimize_shift(h);
-  ld sh = get_shift_cycles(h.shift);
-  h.shift -= sh;
-  auto res0 = T;
-  optimize_shift(res0);
-  auto res1 = res0 * chg_shift(h.shift);
-  optimize_shift(res1);
-  res1.shift += get_shift_cycles(res0.shift - res1.shift);
-  auto res2 = res1 * h.h;
-  optimize_shift(res2);
-  res2.shift += get_shift_cycles(res1.shift - res2.shift);
-  res2.shift += sh;  
-  return res2;
-  }
-
-ads_matrix ads_matrix::operator*(ads_matrix h) const {
-  auto& T = *this;
-  optimize_shift(h);
-  ld sh = get_shift_cycles(h.shift);
-  h.shift -= sh;
-
-  auto res0 = T;
-  optimize_shift(res0);
-  auto res1 = res0 * chg_shift(h.shift);
-  optimize_shift(res1);
-  res1.shift += get_shift_cycles(res0.shift - res1.shift);
-  auto res2 = res1 * h.T;
-  optimize_shift(res2);
-  res2.shift += get_shift_cycles(res1.shift - res2.shift);
-  res2.shift += sh;
-  return res2;
+ads_matrix ads_matrix::operator*(const ads_matrix& h) const {
+  return ads_matrix(twist::nmul(self, h));
   }
 
 ads_matrix ads_inverse(const ads_matrix& T) {
-  ads_matrix res(inverse(unshift(T)), 0);
-  ads_matrix m = res * T;
-  optimize_shift(m);
-  res.shift -= m.shift;
-  return res;
+  return ads_matrix(twist::ninverse(T));
   }
 
 struct cross_result {
@@ -140,7 +104,7 @@ cross_result cross0_sim(ads_matrix hz) {
   if(uhzt[3] < 0) { t += 180*degree; uhzt = -uhzt; }
 
   tie(uhzt[2], uhzt[3]) = make_pair(uhzt[3], -uhzt[2]);
-  t += get_shift_cycles(-hz.shift-t);
+  t += twist::get_shift_cycles(-hz.shift-t);
   
   return cross_result{uhzt, t};
   }

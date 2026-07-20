@@ -2,8 +2,6 @@
 
 #define PSHIFT 0
 
-#define RVPATH HYPERPATH "rogueviz/"
-
 namespace rogueviz {
 
 #if CAP_MODELS
@@ -91,13 +89,13 @@ struct dmv_grapher : grapher {
 
 void nil_screen(presmode mode, int id) {
   use_angledir(mode, id == 0);
-  setCanvas(mode, '0');
+  setPlainCanvas(mode);
   if(mode == pmStart) {
     slide_backup(pmodel);
     slide_backup(pconf.clip_min);
     slide_backup(pconf.clip_max);
     slide_backup(vid.cells_drawn_limit);
-    stop_game(), pmodel = mdHorocyclic, geometry = gCubeTiling, pconf.clip_min = -10000, pconf.clip_max = +100, start_game();
+    stop_game(), pmodel = mdHorocyclic, geometry = gCubeTiling, variation = eVariation::pure, pconf.clip_min = -10000, pconf.clip_max = +100, start_game();
     }
   add_stat(mode, [id] {
     cmode |= sm::SIDE;
@@ -274,8 +272,6 @@ void nil_screen(presmode mode, int id) {
     dialog_may_latex(dirbox("D:") + cbox("(x,y,z+d)"), "D: (x,y,z+d)");
     dialog::display();
     
-    dynamicval<eGeometry> gg(geometry, gNil);
-
     return false;
     });
   }
@@ -287,13 +283,13 @@ void geodesic_screen(presmode mode, int id) {
 
   use_angledir(mode, id == 0);
   
-  setCanvas(mode, '0');
+  setPlainCanvas(mode);
   if(mode == pmStart) {
     slide_backup(pmodel);
     slide_backup(pconf.clip_min);
     slide_backup(pconf.clip_max);
     slide_backup(vid.cells_drawn_limit);
-    stop_game(), pmodel = mdHorocyclic, geometry = gCubeTiling, pconf.clip_min = -10000, pconf.clip_max = +100, start_game();
+    stop_game(), pmodel = mdHorocyclic, geometry = gCubeTiling, variation = eVariation::pure, pconf.clip_min = -10000, pconf.clip_max = +100, start_game();
     }
   
   add_stat(mode, [id] {
@@ -471,7 +467,7 @@ void geodesic_screen(presmode mode, int id) {
 
 void brick_slide(int i, presmode mode, eGeometry geom, eModel md, int anim) {
   using namespace tour;
-  setCanvas(mode, '0');
+  setPlainCanvas(mode);
   if(mode == pmStart) {
     set_geometry(geom);
     start_game();
@@ -511,7 +507,7 @@ void ply_slide(tour::presmode mode, eGeometry geom, eModel md, bool anim) {
     check_cgi();
     cgi.require_shapes();
     }
-  setCanvas(mode, '0');
+  setPlainCanvas(mode);
   if(mode == pmStart) {
     set_geometry(geom);
     start_game();
@@ -534,7 +530,7 @@ void ply_slide(tour::presmode mode, eGeometry geom, eModel md, bool anim) {
 
 void impossible_ring_slide(tour::presmode mode) {
   using namespace tour;
-  setCanvas(mode, '0');
+  setPlainCanvas(mode);
   if(mode == pmStart) {
     set_geometry(gCubeTiling);
     start_game();
@@ -591,7 +587,7 @@ void enable_earth() {
   stop_game();
   set_geometry(gSphere);
   enable_canvas();
-  patterns::whichCanvas = 'F';
+  ccolor::which = &ccolor::football;
   start_game();        
   texture::config.configname = "textures/earth.txc";
   texture::config.load();
@@ -626,20 +622,14 @@ slide dmv_slides[] = {
     "The sum of angles of a triangle is 180 degrees.\n\n",
     [] (presmode mode) {
       if(mode == pmStartAll) enable_canvas();
-      setCanvas(mode, 'F');
-      if(mode == pmStart) {
-        stop_game();
-        slide_backup(firstland, laCanvas);        
-        slide_backup(specialland, laCanvas);
-
+      setCanvas(mode, &ccolor::football, [] {
         set_geometry(gArchimedean); arcm::current.parse("3^6");
         set_variation(eVariation::pure);
-
-        slide_backup(colortables['F'][0], 0xC0FFC0);
-        slide_backup(colortables['F'][1], 0x80FF80);
+        slide_backup(ccolor::which->ctab, colortable{0xC0FFC0, 0x80FF80});
+        });
+      if(mode == pmStart) {
         slide_backup(pconf.alpha, 1); 
         slide_backup(pconf.scale, 1); 
-        start_game();
         slide_backup(patterns::whichShape, '9');
         slide_backup(vid.use_smart_range, 2);
         slide_backup(mapeditor::drawplayer, false);
@@ -664,7 +654,7 @@ slide dmv_slides[] = {
     "For creatures restricted to just this surface, they are indeed striaght lines!\n\n"
     ,
     [] (presmode mode) {
-      setCanvas(mode, '0');
+      setPlainCanvas(mode);
       if(mode == pmStart) {
         tour::slide_backup(mapeditor::drawplayer, false);
         enable_earth();
@@ -701,19 +691,15 @@ slide dmv_slides[] = {
     "In hyperbolic geometry, the sum of angles of a triangle is less than 180 degrees.\n\n",
     [] (presmode mode) {
       if(mode == pmStartAll) enable_canvas();
-      setCanvas(mode, 'F');
-      if(mode == pmStart) {
-        stop_game();
-        slide_backup(firstland, laCanvas);        
-        slide_backup(specialland, laCanvas);
+      setCanvas(mode, &ccolor::football, [] {
         set_geometry(gNormal);
         set_variation(eVariation::bitruncated);
-        slide_backup(colortables['F'][0], 0xC0FFC0);
-        slide_backup(colortables['F'][1], 0x80FF80);
+        slide_backup(ccolor::which->ctab, colortable{0xC0FFC0, 0x80FF80});
+        });
+      if(mode == pmStart) {
         slide_backup(pconf.alpha, 1); 
         slide_backup(pconf.scale, 1); 
         slide_backup(rug::mouse_control_rug, true);
-        start_game();
         slide_backup(patterns::whichShape, '9');
         }
       if(mode == pmStart) {
@@ -755,14 +741,13 @@ slide dmv_slides[] = {
     
     [] (presmode mode) {
       if(mode == pmStart) {
-        slide_backup(patterns::rwalls, 10);
+        slide_backup(ccolor::rwalls, 10);
         slide_backup(vid.fov, 120);
         }
 
-      setCanvas(mode, '0');
+      setPlainCanvas(mode, [] { set_geometry(gSpace534); });
       
       if(mode == pmStart) {
-        set_geometry(gSpace534);
         /*
         static bool solved = false;
         if(!solved) {
@@ -917,12 +902,10 @@ slide dmv_slides[] = {
     "(press Home/End and arrow keys to move)",
 
     [] (presmode mode) {
-      setCanvas(mode, '0');
+      setWhiteCanvas(mode, [] { set_geometry(gNil); });
       slidecommand = "highlight dimensions";
       if(mode == pmStart) {
         tour::slide_backup(pmodel, mdGeodesic);
-        set_geometry(gNil);
-        start_game();
         rogueviz::rv_hook(hooks_drawcell, 100, rogueviz::nilcompass::draw_compass);
         View = Id;
         shift_view(ztangent(.5));
@@ -1174,7 +1157,7 @@ slide dmv_slides[] = {
         pic_exists = file_exists("rogueviz/nil/emty-ring.png");
         video_exists = file_exists("rogueviz/nil/emty-ring.mp4");
         }
-      slide_url(mode, 'i', "Instagram link", "https://www.instagram.com/p/B756GCynErw/");
+      slide_url(mode, 'i', "Instagram link", "https://www.instagram.com/emty01/reel/CNZ6nn0n0_n");
       empty_screen(mode);
       if(video_exists)
         show_animation(mode, "rogueviz/nil/emty-ring.mp4", 720, 900, 300, 30);
@@ -1199,22 +1182,19 @@ slide dmv_slides[] = {
     "Here is how it looks in Nil. Press '5' to animate.\n",
    
   [] (presmode mode) {
-    setCanvas(mode, '0');
+    setWhiteCanvas(mode, [] {
+      set_geometry(gNil);
+      tour::on_restore(nilv::set_flags);
+      tour::slide_backup(nilv::nilperiod, make_array(3, 3, 3));
+      nilv::set_flags();
+      });
     
     slidecommand = "animation";
     if(mode == pmKey) {
       tour::slide_backup(rogueviz::cylon::cylanim, !rogueviz::cylon::cylanim);
       }
     
-    if(mode == pmStart) {
-      stop_game();
-      set_geometry(gNil);
-      rogueviz::cylon::enable();
-      tour::on_restore(nilv::set_flags);
-      tour::slide_backup(nilv::nilperiod, make_array(3, 3, 3));
-      nilv::set_flags();
-      start_game();
-      }
+    if(mode == pmStart) rogueviz::cylon::enable();
     non_game_slide_scroll(mode);
     }},
 
@@ -1261,13 +1241,8 @@ slide dmv_slides[] = {
     [] (presmode mode) {
       slide_url(mode, 'y', "YouTube link", "https://www.youtube.com/watch?v=mxvUAcgN3go");
       slide_url(mode, 'n', "Nil Rider", "https://zenorogue.itch.io/nil-rider");
-      setCanvas(mode, '0');
+      setWhiteCanvas(mode, [] { set_geometry(gNil); });
       if(mode == pmStart) {
-        stop_game();
-        set_geometry(gNil);
-        check_cgi();
-        cgi.require_shapes();
-        start_game();
         rogueviz::balls::initialize(1);
         rogueviz::balls::balls.resize(3);
         pmodel = mdEquidistant;
@@ -1302,7 +1277,7 @@ slide dmv_slides[] = {
   
 int phooks = 
   0 +
-  addHook_slideshows(100, [] (tour::ss::slideshow_callback cb) {
+  addHook_slideshows(60, [] (tour::ss::slideshow_callback cb) {
     cb(XLAT("Playing with Impossibility"), &dmv_slides[0], 'i');
     });
  

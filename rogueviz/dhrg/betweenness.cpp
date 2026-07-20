@@ -323,6 +323,7 @@ bool neq(betweenness_type a, betweenness_type b) {
   }
 
 void compute_betweenness(bool verify) {
+  auto N = get_n();
   progressbar pb(N, "compute_betweenness");
   int errorcount = 0, errorcount2 = 0;
   for(int i=0; i<N; i++) {
@@ -342,7 +343,7 @@ void compute_betweenness(bool verify) {
     auto b = betweenness3(c1);
     // add_to_set(c1, 1, 0);
     auto b4 = betweenness4(c1);
-    print(hlog, hr::format("B;%10Ld;%10Ld;%20.10Lf;%3d;%-40s", b.first, b.second, b4, vertices[i]->lev, rogueviz::vdata[i].name.c_str()));
+    print(hlog, hr::format("B;%10lld;%10lld;%20.10f;%3d;%-40s", b.first, b.second, (double) b4, vertices[i]->lev, rogueviz::vdata[i].name.c_str()));
     if(verify) {
       /*
       betweenness_type a = b.first;
@@ -383,7 +384,6 @@ void build(mycell *c, int lev, string s) {
 
 void build_all(int d) {
   build(mroot, d, "");
-  N = isize(vertices);
   counttallies();
   }
 
@@ -398,7 +398,6 @@ void load_test() {
     rogueviz::vdata.back().name = "PATH:" + s;
     }
   // build(mroot, 5, "");
-  N = isize(vertices);
   counttallies();
   // add_to_set(vertices[0], -1, 0);
   }

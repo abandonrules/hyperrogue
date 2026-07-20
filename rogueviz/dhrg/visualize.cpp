@@ -3,7 +3,7 @@
 int held_id = -1;
 
 void show_likelihood() {
-  cmode = sm::SIDE | sm::MAYDARK | sm::DIALOG_STRICT_X | sm::PANNING;
+  cmode = sm::SIDE | sm::DIALOG_STRICT_X | sm::PANNING;
   gamescreen();
 
   dialog::init("DHRG information");
@@ -54,9 +54,7 @@ void show_likelihood() {
   dialog::add_action([] () { 
     embedder_loop(1); 
     ts_vertices = ts_rbase;
-    place_rogueviz_vertices();
-    if(!stored) rogueviz::storeall(), stored = true;
-    else shmup::fixStorage();
+    rogueviz::embeddings::reenable_embedding();
     });
   
   dialog::addBack();
@@ -65,9 +63,8 @@ void show_likelihood() {
   if(held_id >= 0) {
     if(!mousepressed) held_id = -1;
     else if(mouseover) {    
-      rogueviz::vdata[held_id].m->base = mouseover;
-      shmup::fixStorage();
-      dhrg::fixedges(); 
+      auto& vd = rogueviz::vdata[held_id];
+      vd.be(mouseover, vd.m->at);
 
       auto& mc = vertices[held_id];
       tallyedgesof(held_id, -1, mc);
@@ -86,6 +83,7 @@ void show_likelihood() {
 
     handlePanning(sym, uni);
     if(uni == '-' && held_id == -1) {
+      int N = get_n();
       for(int i=0; i<N; i++) if(rogueviz::vdata[i].m->base == mouseover)
         held_id = i;
       return;
@@ -96,6 +94,13 @@ void show_likelihood() {
     };
   }
 
+int a1 = addHook(rogueviz::hooks_rvmenu, 100, [] {
+    if(isize(vertices)) {
+      dialog::addItem("examine DHRG", 'd');
+      dialog::add_action_push(show_likelihood);
+      }
+    });
+
 bool dhrg_animate(int sym, int uni) {
   if((cmode & sm::NORMAL) && uni == '/') {
     clearMessages();
@@ -103,9 +108,7 @@ bool dhrg_animate(int sym, int uni) {
     if(ts_rbase > ts_vertices) {
       dhrg_init(); graph_from_rv(); 
       ts_vertices = ts_rbase;
-      place_rogueviz_vertices();
-      if(!stored) rogueviz::storeall(), stored = true;
-      else shmup::fixStorage();
+      rogueviz::embeddings::reenable_embedding();
       }    
     pushScreen(show_likelihood);
 

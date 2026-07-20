@@ -27,6 +27,26 @@ EX int SDL_GetTicks() {
 #endif
 #endif
 
+#if HDR
+template<class T>
+class span {
+  T *begin_ = nullptr;
+  T *end_ = nullptr;
+
+  public:
+  explicit span() = default;
+  explicit span(T *p, int n) : begin_(p), end_(p + n) {}
+  T *begin() const { return begin_; }
+  T *end() const { return end_; }
+  };
+
+template<class Map, class Key>
+hr::span<const shiftmatrix> span_at(const Map& map, const Key& key) {
+  auto it = map.find(key);
+  return (it == map.end()) ? hr::span<const shiftmatrix>() : hr::span<const shiftmatrix>(it->second.data(), it->second.size());
+  }
+#endif
+
 EX long double sqr(long double x) { return x*x; }
 
 EX ld round_nearest(ld x) { if(x > 0) return int(x+.5); else return -int(.5-x); }
@@ -64,6 +84,12 @@ EX ld lerp(ld a0, ld a1, ld x) {
   return a0 + (a1-a0) * x;
   }
 
+EX ld clamp(ld a, ld v0, ld v1) {
+  if(a < v0) return v0;
+  if(a > v1) return v1;
+  return a;
+  }
+
 EX cld lerp(cld a0, cld a1, ld x) {
   return a0 + (a1-a0) * x;
   }
@@ -87,6 +113,7 @@ EX bool appears(const string& haystack, const string& needle) {
 #if HDR
 struct hr_parse_exception : hr_exception {
   string s;
+  const char *what() const noexcept override { return s.c_str(); }
   hr_parse_exception(const string& z) : s(z) {}
   ~hr_parse_exception() noexcept(true) {}
   };
@@ -130,6 +157,7 @@ struct exp_parser {
   cld parse(int prio = 0);
 
   transmatrix parsematrix(int prio = 0);
+  color_t parsecolor(int prio = 0);
 
   ld rparse(int prio = 0) { return validate_real(parse(prio)); }
   int iparse(int prio = 0) { return int(floor(rparse(prio) + .5)); }
@@ -217,6 +245,12 @@ cld exp_parser::parse(int prio) {
   else if(eat("floor(")) res = floor(validate_real(parsepar()));
   else if(eat("frac(")) { res = parsepar(); res = res - floor(validate_real(res)); }
   else if(eat("to01(")) { res = parsepar(); return atan(res) / ld(M_PI) + ld(0.5); }
+  else if(eat("angle_from_matrix(")) {
+    auto m = parsematrix(); eat(")"); return -atan2(m * C0);
+    }
+  else if(eat("dist_from_matrix(")) {
+    auto m = parsematrix(); eat(")"); return hdist0(m * C0);
+    }
   else if(eat("min(")) {
     ld a = rparse(0);
     while(skip_white(), eat(",")) a = min(a, rparse(0));
@@ -228,6 +262,13 @@ cld exp_parser::parse(int prio) {
     while(skip_white(), eat(",")) a = max(a, rparse(0));
     force_eat(")");
     res = a;
+    }
+  else if(eat("atan2(")) {
+    ld y = rparse(0);
+    force_eat(",");
+    ld x = rparse(0);
+    force_eat(")");
+    res = atan2(y, x);
     }
   else if(eat("edge(")) {
     ld a = rparse(0);
@@ -338,26 +379,6 @@ cld exp_parser::parse(int prio) {
     cld no = parsepar();
     res = abs(cond) < 1e-8 ? yes : no;
     }
-  else if(eat("wallif(")) {
-    cld val0 = parse(0);
-    force_eat(",");
-    cld val1 = parsepar();
-    if(real(extra_params["p"]) >= 3.5) res = val0;
-    else res = val1;
-    }
-  else if(eat("rgb(")) {     
-    cld val0 = parse(0);
-    force_eat(",");
-    cld val1 = parse(0);
-    force_eat(",");
-    cld val2 = parsepar();
-    switch(int(real(extra_params["p"]) + .5)) {
-      case 1: res = val0; break;
-      case 2: res = val1; break;
-      case 3: res = val2; break;
-      default: res = 0;
-      }
-    }
   else if(eat("let(")) {
     string name = next_token();
     force_eat("=");
@@ -366,12 +387,35 @@ cld exp_parser::parse(int prio) {
     dynamicval<cld> d(extra_params[name], val);
     res = parsepar();
     }
+  else if(eat("solve(")) {
+    string name = next_token();
+    force_eat("=");
+    cld minval = parse(0);
+    force_eat(",");
+    cld maxval = parse(0);
+    force_eat(",");
+    int bak_at = at;
+    for(int i=0; i<100; i++) {
+      res = (minval + maxval) / cld(2);
+      dynamicval<cld> d(extra_params[name], res);
+      at = bak_at;
+      cld result = parsepar();
+      if(real(result) > 0) maxval = res;
+      else minval = res;
+      }
+    }
   #if CAP_TEXTURE
   else if(eat("txp(")) {
     cld val = parsepar();
     res = texture::get_txp(real(val), imag(val), int(real(extra_params["p"]) + .5)-1);
     }
   #endif
+  else if(eat("lands_at(")) {
+    int score = iparse(0);
+    force_eat(")");
+    int i1, i2; count_at_level(i1, i2, score);
+    return i1;
+    }
   else if(next() == '(') at++, res = parsepar(); 
   else {
     string number = next_token();
@@ -381,6 +425,8 @@ cld exp_parser::parse(int prio) {
     else if(number == "i") res = cld(0, 1);
     else if(number == "inf") res = HUGE_VAL;
     else if(number == "p" || number == "pi") res = M_PI;
+    else if(number == "tau") res = TAU;
+    else if(number == "phi") res = (1 + sqrt(5)) / 2;
     else if(number == "" && next() == '-') { at++; res = -parse(20); }
     else if(number == "") throw hr_parse_exception("number missing, " + where());
     else if(number == "s") res = ticks / 1000.;
@@ -394,6 +440,26 @@ cld exp_parser::parse(int prio) {
     else if(number == "step") res = hdist0(tC0(currentmap->adj(cwt.at, 0)));
     else if(number == "edgelen") { start_game(); res = hdist(get_corner_position(cwt.at, 0), get_corner_position(cwt.at, 1)); }
     else if(number == "mousey") res = mousey;
+    else if(number == "turncount") res = turncount;
+    else if(number == "framecount") res = frameid;
+    else if(number == "gametime") res = getgametime_precise();
+    else if(number == "last_a") res = anims::last_anim_vars[0];
+    else if(number == "last_b") res = anims::last_anim_vars[1];
+    else if(number == "last_c") res = anims::last_anim_vars[2];
+    else if(number == "last_d") res = anims::last_anim_vars[3];
+    else if(number == "illegal_moves") res = illegal_moves;
+    else if(number == "lshift") res = lshiftclick;
+    else if(number == "rshift") res = rshiftclick;
+    else if(number == "lctrl") res = lctrlclick;
+    else if(number == "rctrl") res = rctrlclick;
+#if !ISMOBILE
+    else if(number == "capslock") res = (SDL_GetModState() & KMOD_CAPS) ? 1 : 0;
+    else if(number == "numlock") res = (SDL_GetModState() & KMOD_NUM) ? 1 : 0;
+#if SDLVER >= 2
+    else if(number == "scrolllock") res = (SDL_GetModState() & KMOD_SCROLL) ? 1 : 0;
+#endif
+#endif
+    else if(number == "holdmouse") res = holdmouse ? 1 : 0;
     else if(number == "mousexs") {
       if(!inHighQual) bmousexs = (1. * mousex - current_display->xcenter) / current_display->radius;
       res = bmousexs;
@@ -413,7 +479,15 @@ cld exp_parser::parse(int prio) {
     else if(number[0] >= 'a' && number[0] <= 'z') throw hr_parse_exception("unknown value: " + number);
     else if(number[0] >= 'A' && number[0] <= 'Z') throw hr_parse_exception("unknown value: " + number);
     else if(number[0] == '_') throw hr_parse_exception("unknown value: " + number);
-    else { std::stringstream ss; res = 0; ss << number; ss >> res; }
+    else {
+      if(among(number.back(), 'e', 'E')) {
+        if(eat("-")) number = number + "-" + next_token();
+        else if(eat("+")) number = number + "+" + next_token();
+        }
+      std::stringstream ss; res = 0; ss << number;
+      ss >> res;
+      if(ss.fail() || !ss.eof()) throw hr_parse_exception("unknown value: " + number);
+      }
     }
   while(true) {
     skip_white();
@@ -485,6 +559,7 @@ ld angle_unit(char ch) {
   if(ch == 'r') return 1;
   if(ch == 'd') return degree;
   if(ch == 't') return TAU;
+  if(ch == 'q') return TAU/4;
   if(ch == 'l') return -1;
   return 0;
   }
@@ -530,6 +605,88 @@ transmatrix exp_parser::parsematrix(int prio) {
   return res;
   }
 
+color_t part_to_col(array<ld, 4> parts) {
+  color_t res;
+  for(int i=0; i<4; i++) {
+    ld v = parts[i];
+    part(res, i) = clamp(int(v * 255 + .5), 0, 255);
+    }
+  return res;
+  }
+
+color_t exp_parser::parsecolor(int prio) {
+  skip_white();
+  if(eat("indexed(")) {
+    int pos = at;
+    array<ld, 4> parts;
+    bool have_index = extra_params.count("p");
+    auto val = extra_params["p"];
+    for(int i=0; i<4; i++) {
+      at = pos;
+      extra_params["p"] = i+1;
+      parts[i] = rparse();
+      }
+    if(!have_index) extra_params.erase("p");
+    extra_params["p"] = val;
+    force_eat(")");
+    return part_to_col(parts);
+    }
+  if(eat("wallif(")) {
+    ld val0 = rparse();
+    force_eat(",");
+    color_t res = parsecolor();
+    force_eat(")");
+    res &= 0xFFFFFF00;
+    if(val0 > 0) res |= 0x1;
+    return res;
+    }
+  if(eat("rgb(")) {
+    array<ld, 4> parts;
+    parts[3] = rparse(); force_eat(",");
+    parts[2] = rparse(); force_eat(",");
+    parts[1] = rparse();
+    if(eat(",")) parts[0] = rparse(); else parts[0] = 1;
+    force_eat(")");
+    return part_to_col(parts);
+    }
+  if(eat("hsv(")) {
+    ld hue = rparse();
+    ld sat = eat(",") ? rparse() : 1;
+    ld value = eat(",") ? rparse() : 1;
+    ld alpha = eat(",") ? rparse() : 1;
+    color_t col = (rainbow_color(sat, hue) << 8) | 0xFF;
+    if(value < 1) col = gradient(0, col, 0, value, 1);
+    if(alpha < 1) part(col, 0) = clamp(alpha * 255, 0, 255);
+    }
+  if(eat("lerp(")) {
+    color_t a = parsecolor();
+    force_eat(",");
+    color_t b = parsecolor();
+    force_eat(",");
+    ld x = rparse();
+    force_eat(")");
+    return gradient(a, b, 0, x, 1);
+    }
+  string token = next_token();
+  if(params.count(token)) return (color_t) real(params[token]->get_cld());
+
+  auto p = find_color_by_name(token);
+  if(p) return (p->second << 8) | 0xFF;
+
+  color_t res;
+  if(token.size() == 6) {
+    int qty = sscanf(token.c_str(), "%x", &res);
+    if(qty == 0) throw hr_parse_exception("color parse error");
+    return res * 256 + 0xFF;
+    }
+  else if(token.size() == 8) {
+    int qty = sscanf(token.c_str(), "%x", &res);
+    if(qty == 0) throw hr_parse_exception("color parse error");
+    return res;
+   }
+  throw hr_parse_exception("color parse error");
+  }
+
 EX ld parseld(const string& s) {
   exp_parser ep;
   ep.s = s;
@@ -540,6 +697,25 @@ EX transmatrix parsematrix(const string& s) {
   exp_parser ep;
   ep.s = s;
   return ep.parsematrix();
+  }
+
+EX color_t parsecolor(const string& s, bool has_alpha) {
+  exp_parser ep;
+  ep.s = s;
+  auto col = ep.parsecolor();
+  if(!has_alpha) col >>= 8;
+  return col;
+  }
+
+EX colortable parsecolortable(const string& s) {
+  colortable tab;
+  tab.clear();
+  exp_parser ep;
+  ep.s = s;
+  tab.push_back(ep.parsecolor() >> 8);
+  while(ep.eat(","))
+    tab.push_back(ep.parsecolor() >> 8);
+  return tab;
   }
 
 EX trans23 parsematrix23(const string& s) {
@@ -567,8 +743,17 @@ EX string available_functions() {
   }
 
 EX string available_constants() {
+  return
+    "e, i, pi, tau, phi, deg [degree]";
+  }
+
+EX string available_variables() {
   return 
-    "e, i, pi, s, ms, mousex, mousey, mousez, shot [1 if taking screenshot/animation]";
+    "Keyboard and mouse:\n\n"
+    "mousex, mousey, mousez, lshift, rshift, lctrl, rctrl, capslock, numlock, scrolllock, holdmouse, random, mousexs, mouseys\n\n"
+    "Time:\n\n"
+    "s [seconds], ms [milliseconds], turncount, framecount, gametime\n\n"
+    "Other:\n\nshot [1 if taking screenshot/animation], illegal_moves";
   }
 
 #if HDR
@@ -603,7 +788,7 @@ struct bignum {
     }
   
   ld log_approx() const {
-    return log(leading()) * log(BASE) * (isize(digits) - 1);
+    return log(leading()) + log(BASE) * (isize(digits) - 1);
     }
   
   ld approx_div(const bignum& b) const {
@@ -860,11 +1045,28 @@ EX string find_file(string s) {
   if(file_exists(s)) return s;
   char *p = getenv("HYPERPATH");
   if(p && file_exists(s1 = s0 + p + s)) return s1;
+#ifdef HYPERPATH
   if(file_exists(s1 = HYPERPATH + s)) return s1;
+#endif
 #ifdef FHS
   if(file_exists(s1 = "/usr/share/hyperrogue/" + s)) return s1;
 #endif
+#if SDLVER >= 2
+  char *path = SDL_GetBasePath();
+  if(path) {
+    string bpath = path;
+    if(file_exists(s1 = bpath + s)) return s1;
+    }
+#endif
   return s;
+  }
+
+EX void file_error(const string& fname) {
+  throw hr_exception("missing file error");
+  }
+
+EX void file_format_error(const string& fname) {
+  throw hr_exception("file format error");
   }
 
 EX void open_url(string s) {
@@ -921,6 +1123,44 @@ EX string read_file_as_string(string fname) {
   fclose(f);
   #endif
   return buf;
+  }
+
+EX string eval_programmable_string(const string& fmt) {
+  try {
+    exp_parser ep;
+    ep.s = fmt;
+    string out;
+    while(ep.at < (int) fmt.size()) {
+      if(ep.eat("$(")) {
+        auto res = ep.parse();
+        if(ep.eat(",")) {
+          int prec = ep.iparse();
+          std::stringstream str;
+          str.precision(prec);
+          str << std::fixed;
+          if(prec) str << std::showpoint;
+          str << real(res);
+          if(imag(res)) str << "+i" << imag(res);
+          out += str.str();
+          }
+        else {
+          out += fts(real(res));
+          if(imag(res)) out += "+i" + fts(imag(res));
+          }
+        ep.force_eat(")");
+        }
+      else out += ep.eatchar();
+      }
+    return out;
+    }
+  catch(hr_parse_exception& ex) {
+    return fmt;
+    }
+  }
+
+EX bool starts_with(const char *c, const char *token) {
+  while(*token && *c == *token) c++, token++;
+  return !*token;
   }
 
 EX void floyd_warshall(vector<vector<char>>& v) {

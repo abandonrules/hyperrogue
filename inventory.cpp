@@ -481,7 +481,7 @@ EX namespace inv {
     return s;
     }
   
-  EX bool activating;
+  EX bool activating, view_help_only;
 
   /** \brief show the OSM Orb screen */
   EX void show() {
@@ -545,8 +545,8 @@ EX namespace inv {
               if(gg) {
                 initquickqueue();
                 poly_outline = OUTLINE_DEFAULT;
-                transmatrix V = atscreenpos(px, py, rad*2);
-                drawItemType(o, NULL, shiftless(V), icol, ticks/3 + i * 137, false);
+                shiftmatrix V = atscreenpos(px, py, rad*2);
+                drawItemType(o, NULL, V, icol, ticks/3 + i * 137, false);
                 quickqueue();
                 }
 
@@ -581,7 +581,7 @@ EX namespace inv {
       dialog::addItem(XLAT("help"), SDLK_F1);
       dialog::addItem(XLAT("return to the game"), 'i');
       dialog::display();
-      which = orbmap[getcstat];
+      if(orbmap.count(getcstat)) which = orbmap[getcstat];
       }
     else {
       if(which == itNone) {
@@ -632,14 +632,17 @@ EX namespace inv {
   
         }
       }
-    dialog::displayPageButtons(7, 0);
+    dialog::display_bottom_buttons(0, dialog::DB_BACK | dialog::DB_HELP | dialog::DB_PLAIN | (view_help_only ? dialog::DB_EXPLAIN : dialog::DB_ACTIVATE));
     mouseovers = "";
     keyhandler = [] (int sym, int uni) {
       if(plain) dialog::handleNavigation(sym, uni);
       
       if(orbmap.count(uni)) {
         eItem orb = orbmap[uni];
-        if(remaining[orb] <= 0) ;
+        if(view_help_only) {
+          gotoHelp(generateHelpForItem(orb));
+          }
+        else if(remaining[orb] <= 0) ;
         else if(orb == itOrbMirror) {
           mirroring = !mirroring;
           // an amusing message
@@ -684,12 +687,13 @@ EX namespace inv {
             usedForbidden = true;
           cwt.at->item = it;
           evokeOrb(orbmap[uni]);
-          checkmove();
+          checkmove(false);
           popScreenAll();
           }
         }
       
       else if(uni == '1') plain = !plain;
+      else if(uni == '2') view_help_only = !view_help_only;
       else if(sym == SDLK_F1) 
         gotoHelp(which ? generateHelpForItem(which) : XLAT(helptext));
       else if(doexiton(sym, uni)) {

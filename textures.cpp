@@ -143,6 +143,10 @@ EX cpatterntype cgroup;
 
 #if CAP_PNG
 SDL_Surface *convertSurface(SDL_Surface* s) {
+  #if SDLVER >= 3
+  return SDL_ConvertSurface(s, SDL_PIXELFORMAT_BGRA8888);
+
+#else
   SDL_PixelFormat fmt;
   // fmt.format = SDL_PIXELFORMAT_BGRA8888;
   fmt.BitsPerPixel = 32;
@@ -159,12 +163,13 @@ SDL_Surface *convertSurface(SDL_Surface* s) {
   fmt.Aloss = fmt.Rloss = fmt.Gloss = fmt.Bloss = 0;
   fmt.palette = NULL;
 
-#if !CAP_SDL2
+#if SDLVER <= 1
   fmt.alpha = 0;
   fmt.colorkey = 0x1ffffff;
 #endif
   
   return SDL_ConvertSurface(s, &fmt, SDL_SWSURFACE);
+#endif
   }
 #endif
 
@@ -205,6 +210,7 @@ template<class T, class U> void scale_colorarray(int origdim, int targetdim, con
   
 bool texture_data::loadTextureGL() {
 
+  if(!twidth || !theight) return false;
   if(textureid == 0) glGenTextures(1, &textureid);
 
   glBindTexture( GL_TEXTURE_2D, textureid);
@@ -244,7 +250,7 @@ bool texture_data::readtexture(string tn) {
     return false;
     }
   auto txt2 = convertSurface(txt);
-  SDL_FreeSurface(txt);
+  SDL_DestroySurface(txt);
 
   tx = txt2->w, ty = txt2->h;
   
@@ -253,7 +259,7 @@ bool texture_data::readtexture(string tn) {
 #elif CAP_PNG
   
   FILE *f = fopen(tn.c_str(), "rb");
-  if(!f) { printf("failed to open file\n"); return false; }
+  if(!f) { perror("fopen"); printf("failed to open file %s\n", tn.c_str()); return false; }
   png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
   if(!png) { printf("failed to create_read_struct\n"); return false; }
   if(setjmp(png_jmpbuf(png))) { 
@@ -367,7 +373,7 @@ bool texture_data::readtexture(string tn) {
     }
 
 #if CAP_SDL_IMG
-  SDL_FreeSurface(txt2);
+  SDL_DestroySurface(txt2);
 #endif
   
   return true;
@@ -382,7 +388,7 @@ void texture_data::saveRawTexture(string tn) {
   for(int x=0; x<twidth; x++)
     qpixel(sraw,x,y) = get_texture_pixel(x, y);
   IMAGESAVE(sraw, tn.c_str());
-  SDL_FreeSurface(sraw);
+  SDL_DestroySurface(sraw);
   addMessage(XLAT("Saved the raw texture to %1", tn));
   }
 
@@ -686,12 +692,14 @@ bool newmove = false;
 
 vector<glhr::textured_vertex> rtver(4);
 
+EX int raw_texture_opacity = 32;
+
 void texture_config::drawRawTexture() {
   glflush();
   current_display->next_shader_flags = GF_TEXTURE;
   dynamicval<eModel> m(pmodel, mdPixel);
   current_display->set_all(0, 0);
-  glhr::color2(0xFFFFFF20);
+  glhr::color2(0xFFFFFF00 + raw_texture_opacity);
   glBindTexture(GL_TEXTURE_2D, config.data.textureid);
   for(int i=0; i<4; i++) {
     int cx[4] = {2, -2, -2, 2};
@@ -972,7 +980,7 @@ void mousemovement() {
 
 patterns::patterninfo si_save;  
 
-saverlist texturesavers;
+paramlist texturesavers;
 
 eVariation targetvariation;
 eGeometry targetgeometry;
@@ -983,49 +991,49 @@ string tes;
 
 void init_textureconfig() {
 #if CAP_CONFIG
-  texturesavers = std::move(savers);  
+  texturesavers = std::move(params);  params.clear();
   for(int i=0; i<3; i++)
   for(int j=0; j<3; j++)
-    addsaver(config.itt[i][j], "texturematrix_" + its(i) + its(j), i==j ? 1 : 0);
+    param_f(config.itt[i][j], "texturematrix_" + its(i) + its(j), i==j ? 1 : 0);
 
   for(int i=0; i<3; i++)
   for(int j=0; j<3; j++)
-    addsaver(View[i][j], "viewmatrix_" + its(i) + its(j), i==j ? 1 : 0);
+    param_f(View[i][j], "viewmatrix_" + its(i) + its(j), i==j ? 1 : 0);
 
-  addsaverenum(targetgeometry, "geometry", gNormal);
-  addsaver(tes, "tes", "");
-  addsaverenum(pmodel, "used model", mdDisk);
-  addsaver(vid.yshift, "Y shift", 0);
-  addsaver(pconf.yposition, "Y position", 0);
-  addsaver(pconf.xposition, "X position", 0);
-  addsaver((matrix_eq&)pconf.cam(), "camera angle");
-  addsaverenum(targetvariation, "bitruncated", eVariation::bitruncated);
+  param_enum(targetgeometry, "geometry", gNormal);
+  param_str(tes, "tes", "");
+  param_enum(pmodel, "used model", mdDisk);
+  param_f(vid.yshift, "Y shift", 0);
+  param_f(pconf.yposition, "Y position", 0);
+  param_f(pconf.xposition, "X position", 0);
+  param_matrix((matrix_eq&)pconf.cam(), "camera angle", 2);
+  param_enum(targetvariation, "bitruncated", eVariation::bitruncated);
   // ... geometry parameters
 
-  addsaverenum(patterns::whichPattern, "pattern", patterns::PAT_TYPES);
-  addsaver(patterns::subpattern_flags, "pattern flags", 0);
+  param_enum(patterns::whichPattern, "pattern", patterns::PAT_TYPES);
+  param_i(patterns::subpattern_flags, "pattern flags", 0);
 
-  addsaver(si_save.id, "center type", 1);
-  addsaver(si_save.dir, "center direction", 0);
-  addsaver(si_save.reflect, "center reflection", false);
-  addsaver(config.data.twidth, "texture resolution", 2048);
-  addsaver(config.gsplits, "precision", 1);
+  param_i(si_save.id, "center type", 1);
+  param_i(si_save.dir, "center direction", 0);
+  param_b(si_save.reflect, "center reflection", false);
+  param_i(config.data.twidth, "texture resolution", 2048);
+  param_i(config.gsplits, "precision", 1);
   
-  addsaver(config.grid_color, "grid color", 0);
-  addsaver(config.color_alpha, "alpha color", 0);
-  addsaver(config.mesh_color, "mesh color", 0);
+  param_color(config.grid_color, "grid color", true, 0);
+  param_i(config.color_alpha, "alpha color", 0);
+  param_color(config.mesh_color, "mesh color", true, 0);
   
-  addsaver(pconf.alpha, "projection", 1);
-  addsaver(pconf.scale, "scale", 1);
-  addsaver(pconf.stretch, "stretch", 1);
-  addsaver(vid.binary_width, "binary-tiling-width", 1);
+  param_f(pconf.alpha, "projection", 1);
+  param_f(pconf.scale, "scale", 1);
+  param_f(pconf.stretch, "stretch", 1);
+  param_f(vid.binary_width, "binary-tiling-width", 1);
   
-  addsaver(config.texturename, "texture filename", "");
-  addsaver(config.texture_tuner, "texture tuning", "");
+  param_str(config.texturename, "texture filename", "");
+  param_str(config.texture_tuner, "texture tuning", "");
   
-  addsaver(csymbol, "symbol", "");
+  param_str(csymbol, "symbol", "");
   
-  swap(texturesavers, savers);
+  swap(texturesavers, params);
 #endif
   }
 
@@ -1059,8 +1067,8 @@ bool texture_config::save() {
   if(arcm::in()) csymbol = arcm::current.symbol;
   #endif
   
-  for(auto s: texturesavers) if(s->dosave())
-    fprintf(f, "%s=%s\n", s->name.c_str(), s->save().c_str());
+  for(auto s: texturesavers) if(s.second->dosave())
+    fprintf(f, "%s=%s\n", s.second->name.c_str(), s.second->save().c_str());
   
   fclose(f);
 #endif
@@ -1073,10 +1081,10 @@ bool texture_config::load() {
 
   FILE *f = fopen(configname.c_str(), "rt");
   if(!f) return false;
-  swap(texturesavers, savers);
-  for(auto s: savers) s->reset();
+  swap(texturesavers, params);
+  for(auto s: params) s.second->reset();
   loadNewConfig(f);
-  swap(texturesavers, savers);
+  swap(texturesavers, params);
   fclose(f);
   polygonal::solve();
   
@@ -1098,15 +1106,16 @@ bool texture_config::load() {
         }
       #endif
       if(targetgeometry == gArbitrary) {
-        arb::run(tes);
+        arb::run_raw(tes);
         stop_game();
         }
       set_geometry(targetgeometry);
+      set_variation(targetvariation);
       start_game();
       return config.load();
       }
-    
-    if(variation != targetvariation) {
+    else if(variation != targetvariation) {
+      stop_game();
       set_variation(targetvariation);
       start_game();
       return config.load();
@@ -1329,14 +1338,13 @@ EX void showMenu() {
 
     dialog::addBoolItem(XLATN("Canvas"), specialland == laCanvas, 'X');
     dialog::add_action([] () {
-      bool inwhite = specialland == laCanvas && patterns::whichCanvas == 'g' && patterns::canvasback == 0xFFFFFF;
+      bool inwhite = specialland == laCanvas && ccolor::which == &ccolor::plain && ccolor::plain.ctab.size() == 1 && ccolor::plain.ctab[0] == 0xFFFFFF;
       if(inwhite) 
         pushScreen(patterns::showPrePattern);
       else {
         stop_game();
         enable_canvas();
-        patterns::whichCanvas = 'g';
-        patterns::canvasback = 0xFFFFFF;
+        ccolor::set_plain_nowall(0xFFFFFF);
         start_game();
         }
       });
@@ -1377,6 +1385,9 @@ EX void showMenu() {
     dialog::add_action([] { dialog::openColorDialog(config.slave_color, NULL); });    
 
     dialog::addBreak(50);
+
+    if(texture::config.tstate == texture::tsAdjusting)
+      add_edit(raw_texture_opacity);
     
 #if CAP_SHOT
     dialog::addItem(XLAT("save the raw texture"), 'S');
@@ -1736,10 +1747,6 @@ int textureArgs() {
     shift(); config.configname = args();
     }
 
-  else if(argis("-txc")) {
-    shift(); config.configname = args();
-    }
-
   else if(argis("-txpsize")) {
     shift(); txp.twidth = argi();
     }
@@ -1749,7 +1756,7 @@ int textureArgs() {
     }
 
   else if(argis("-txcl")) {
-    PHASE(3); drawscreen();
+    PHASE(3);
     config.load();
     }
 

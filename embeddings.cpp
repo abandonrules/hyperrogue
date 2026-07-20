@@ -90,12 +90,13 @@ EX namespace geom3 {
         ans += " torus";
       }
     if(among(sp, seSol, seNIH, seSolN)) {
-      if((meuclid && !PURE) && !bt::in()) ans += " pure or bin";
+      if((meuclid && !PURE) || !bt::in()) ans += " pure or bin";
       }
     return ans;
     }
 
   EX eSpatialEmbedding spatial_embedding = seDefault;
+  EX eSpatialEmbedding want_spatial_embedding = seNone;
   EX ld euclid_embed_scale = 1;
   EX ld euclid_embed_scale_y = 1;
   EX ld euclid_embed_rotate = 0;
@@ -402,7 +403,7 @@ struct emb_none : embedding_method {
     return embedding_method::flatten(a);
     }
 
-  hyperpoint normalize_flat(hyperpoint a) override { return normalize(a); }
+  hyperpoint normalize_flat(hyperpoint a) override { return gproduct ? flatten(a) : normalize(a); }
 
   transmatrix base_to_actual(const transmatrix& T) override { return T; }
   hyperpoint base_to_actual(hyperpoint h) override { return h; }
@@ -543,7 +544,7 @@ struct emb_same_in_same : emb_actual {
     for(int i=0; i<4; i++) T[i][2] = T[i][3], T[i][3] = 0;
     for(int i=0; i<4; i++) T[2][i] = T[3][i], T[3][i] = 0;
     T[3][3] = 1;
-    fixmatrix(T);
+    if(MDIM == 3) fixmatrix(T); else IPF(fixmatrix(T));
     for(int i=0; i<MDIM; i++) for(int j=0; j<MDIM; j++) if(isnan(T[i][j])) return Id;
     return T;
     }    
@@ -1369,7 +1370,7 @@ EX void invoke_embed(geom3::eSpatialEmbedding se) {
   if(GDIM == 3) { if(geom3::auto_configure) geom3::switch_fpp(); else geom3::switch_always3(); }
   if(in_tpp()) geom3::switch_tpp();
   if(se != geom3::seNone) {
-    geom3::spatial_embedding = se;
+    geom3::want_spatial_embedding = geom3::spatial_embedding = se;
     if(geom3::auto_configure) geom3::switch_fpp(); else geom3::switch_always3();
     delete_sky();
     if(vid.usingGL) resetGL();
@@ -1389,7 +1390,9 @@ geom3::eSpatialEmbedding embed_by_name(string ss) {
   return seNone;
   }
 
+#if CAP_COMMANDLINE
 auto ah_embed = arg::add2("-seo", [] { arg::shift(); invoke_embed(embed_by_name(arg::args())); })
   + arg::add2("-never-invert", [] { never_invert = true; });
+#endif
 
 }

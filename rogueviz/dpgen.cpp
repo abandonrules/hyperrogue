@@ -11,8 +11,6 @@ namespace hr {
 
 EX namespace dpgen {
 
-EX bool in;
-
 typedef tuple<cell*, cell*, int> cpos;
 
 map<cpos, int> visited;
@@ -57,23 +55,30 @@ void solve(cpos at) {
   }
 
 int last_elimit, last_hlimit;
+int last_seed = 0;
 
 void check();
+
+void show_menu();
+
+const struct puzzle *current_puzzle;
+
+int orig_cheat;
 
 void launch(int seed, int elimit, int hlimit) {
 
   /* setup */
+  dual::disable();
   dual::enable();
   stop_game();
   dual::switch_to(0);
-  enable_canvas();
+  enable_canvas(); ccolor::set_random(0);
   canvas_default_wall = waSea;
   pconf.scale = .5;
   dual::switch_to(1);
-  enable_canvas();
+  enable_canvas(); ccolor::set_random(0);
   shrand(seed);
   start_game();
-  in = true;
   
   cell *c0, *c1;
   dual::switch_to(0);
@@ -111,7 +116,7 @@ void launch(int seed, int elimit, int hlimit) {
 
   pair<cell*, cell*> worst;
   if(1) {
-    int wdist = -1, wdcount;
+    int wdist = -1, wdcount = 0; /* set to silence warning */
     for(cell* x0: cl0) for(cell *x1: cl1) {
       int x = 9999;
       for(int d=0; d<4; d++) 
@@ -128,7 +133,7 @@ void launch(int seed, int elimit, int hlimit) {
   
   while(true) {
     int wdist = -1, wdcount = 0;
-    cell *worst_block;
+    cell *worst_block = nullptr; /* set to silence warning */
     for(cell *c: clboth) if(c->wall == waNone && c != c0 && c != c1) {
       c->wall = waSea;
       solve(start);
@@ -162,42 +167,65 @@ void launch(int seed, int elimit, int hlimit) {
   worst.first->wall = waOpenPlate;
   worst.second->wall = waOpenPlate;
   rogueviz::rv_hook(dual::hooks_after_move, 100, dpgen::check);
-  bool b = gen_wandering;
-  rogueviz::on_cleanup_or_next([b] { gen_wandering = b; });
-  gen_wandering = false;
+  orig_cheat = cheater;
+
+  rv_change(gen_wandering, false);
+  rv_hook(hooks_o_key, 91, [] (o_funcs& v) {
+    v.push_back(named_dialog(XLAT("select a puzzle"), show_menu));
+    });
+  current_puzzle = nullptr;
   }
 
 struct puzzle {
   string name;
   int seed;
   int el, hl;
+  string achievement;
   };
+
+bool restricted;
+void puzzle_restrict();
+
+void launch_puzzle(const puzzle& p) {
+  launch(last_seed = p.seed, last_elimit = p.el, last_hlimit = p.hl);
+  popScreenAll();
+  if(restricted) pushScreen(puzzle_restrict);
+  clearMessages();
+  addMessage("Welcome to Dual Geometry Puzzle!");
+  current_puzzle = &p;
+  }
 
 vector<puzzle> puzzles = {
-  {"easy 1", 1, 3, 2},
-  {"easy 2", 2, 3, 2},
-  {"easy 3", 5, 3, 2},
-  {"medium 1", 7, 3, 3},
-  {"medium 2", 11, 3, 3},
-  {"hard 1", 1, 4, 3},
-  {"hard 2", 1, 3, 4},
-  {"hard 3", 1, 3, 5},
+  {"easy 1", 1, 3, 2, "DP-EASY"},
+  {"easy 2", 2, 3, 2, "DP_EASY"},
+  {"easy 3", 5, 3, 2, "DP_EASY"},
+  {"medium 1", 7, 3, 3, "DP-MEDIUM"},
+  {"medium 2", 11, 3, 3, "DP-MEDIUM"},
+  {"hard 1", 1, 4, 3, "DP-HARD"},
+  {"hard 2", 1, 3, 4, "DP_HARD"},
+  {"hard 3", 1, 3, 5, "DP_HARD"},
   };
 
+void launch_sample_puzzle() {
+  launch_puzzle(puzzles[0]);
+  }
+
 EX void check() {
-  if(in) {
-    int k = dual::currently_loaded;
-    dual::switch_to(1-k);
-    bool ok = cwt.at->wall == waOpenPlate;
-    dual::switch_to(k);
-    ok = ok && cwt.at->wall == waOpenPlate;
-    if(ok) addMessage("You won!");
+  int k = dual::currently_loaded;
+  dual::switch_to(1-k);
+  bool ok = cwt.at->wall == waOpenPlate;
+  dual::switch_to(k);
+  ok = ok && cwt.at->wall == waOpenPlate;
+  if(ok) {
+    addMessage("You won!");
+    #if RVCOL
+    if(cheater == orig_cheat) rogueviz::rv_achievement(current_puzzle->achievement);
+    #endif
     }
   }
 
 bool hide_random = false;
-int last_seed = 0;
-  
+
 EX void show_menu() {
   cmode = sm::DARKEN;
   gamescreen();
@@ -208,8 +236,7 @@ EX void show_menu() {
   for(auto& p: puzzles) {
     dialog::addItem(p.name, ch++);
     dialog::add_action([p] { 
-      launch(last_seed = p.seed, last_elimit = p.el, last_hlimit = p.hl); 
-      popScreenAll(); 
+      launch_puzzle(p);
       });
     }
   dialog::addBreak(50);
@@ -218,7 +245,6 @@ EX void show_menu() {
     dialog::add_action([] { 
       last_seed = rand() % 1000000;
       launch(last_seed, last_elimit, last_hlimit); 
-      popScreenAll();
       });
 
     dialog::addItem(XLAT("enter seed"), 's');
@@ -226,7 +252,6 @@ EX void show_menu() {
       auto& di = dialog::editNumber(last_seed, 0, 1000000, 1, last_seed, XLAT("seed"), "");
       di.reaction_final = [] {
         launch(last_seed, last_elimit, last_hlimit); 
-        popScreenAll();
         };
       di.extra_options = [] {
         dialog::addSelItem("Euclidean size", its(last_elimit), 'E');
@@ -238,7 +263,32 @@ EX void show_menu() {
     }
   dialog::addBreak(50);
   dialog::addBack();
+
+  if(restricted) {
+    dialog::addItem(XLAT("RogueViz settings"), 'S');
+    dialog::add_action([] { pushScreen(showSettings); });
+
+    dialog::addItem(XLAT("back to RogueViz menu"), 'm');
+    dialog::add_action([] { quitmainloop = true; });
+    }
+
   dialog::display();
+  }
+
+EX void puzzle_restrict() {
+  cmode = sm::NORMAL | sm::CENTER;
+  gamescreen();
+
+  keyhandler = [] (int sym, int uni) {
+    if(DEFAULTNOR(sym)) handlePanning(sym, uni);
+    handle_movement(sym, uni);
+
+    if(sym == 'v' && DEFAULTNOR(sym))
+      pushScreen(show_menu);
+
+    if(sym == PSEUDOKEY_MENU || sym == SDLK_ESCAPE)
+      pushScreen(show_menu);
+    };
   }
 
 #if CAP_COMMANDLINE
@@ -265,9 +315,7 @@ auto sbhook = addHook(hooks_args, 100, [] {
     }
   else return 1;
   return 0;
-  }) + addHook(hooks_o_key, 91, [] (o_funcs& v) {
-    if(in) v.push_back(named_dialog(XLAT("select a puzzle"), show_menu));
-    })
+  })
   + addHook_rvslides(205, [] (string s, vector<tour::slide>& v) {
       if(s != "mixed") return;
       v.push_back(tour::slide{

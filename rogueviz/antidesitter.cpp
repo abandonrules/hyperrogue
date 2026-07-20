@@ -19,7 +19,7 @@
 // [moved the center manually using ijkl, then enter to animate]
 // ./hyper -shothud 1 ads_srange=7 -csc .4 -rotspace -canvas-random 10 -prodperiod 0 -ads-ca-check -ads-ca-view -noscr -ads-keys -run ads_simspeed="2*pi" -zoom .95 -shot-1000 -animvideo 1800 ads-ca-faster.mp4 -exit
 
-// [https://twitter.com/ZenoRogue/status/1539871748950315010] However, we could render the hyperbolic plane using Beltrami-Klein projection (as below, contrary to Poincar‚ in other animations), then Beltrami-Klein stretching counterbalances the Lorentz contraction and we get (rotating) hyperbolic plane in Poincar‚ model.
+// [https://twitter.com/ZenoRogue/status/1539871748950315010] However, we could render the hyperbolic plane using Beltrami-Klein projection (as below, contrary to Poincare in other animations), then Beltrami-Klein stretching counterbalances the Lorentz contraction and we get (rotating) hyperbolic plane in Poincare model.
 // ./hyper ads_srange=7 -shothud 1 -csc .4 -rotspace -canvas-random 10 -prodperiod 0 -ads-ca-check -ads-ca-view -noscr ads_simspeed=3 -ads-keys -ads-keylist xaxwxsxdx -ads-keylist 0 -zoom .95 -shot-1000 -alpha 0 -animvideo 1800 ads-ca-klein.mp4
 
 
@@ -151,9 +151,9 @@ void pass_time() {
   
   if(true) {
     ld delta = t - last_t;
-    dynamicval<eGeometry> g(geometry, geometry == gRotSpace ? geometry : gCubeTiling);
+    dynamicval<eGeometry> g(geometry, geometry == gTwistedProduct ? geometry : gCubeTiling);
 
-    const Uint8 *keystate = SDL12_GetKeyState(NULL);
+    const sdl_keystate_type *keystate = SDL12_GetKeyState(NULL);
     if(keystate['a'] || forcekey == 'a') current = apply_lorentz(current, lorentz(0, 2, delta*accel)), ang = 180, acc = true;
     if(keystate['d'] || forcekey == 'd') current = apply_lorentz(current, lorentz(0, 2, -delta*accel)), ang = 0, acc = true; 
     if(keystate['w'] || forcekey == 'w') current = apply_lorentz(current, lorentz(1, 2, delta*accel)), ang = 90, acc = true; 
@@ -643,9 +643,9 @@ bool view_ads_ca() {
       flatresult center;
       vector<flatresult> hlist;
 
-      color_t statecolor;
+      color_t statecolor = 0;
       if(1) {
-        dynamicval<eGeometry> b(geometry, gRotSpace);
+        dynamicval<eGeometry> b(geometry, gTwistedProduct);
         shiftmatrix S = where_matrix[c];
         for(int i=0; i<=c->type; i++) {
           hyperpoint ha = hybrid::get_corner(c, i, 2, 0);
@@ -750,7 +750,7 @@ bool view_ads_ca() {
           break;
           }
         }
-      addaura(shiftless(center.h), statecolor, 0);
+      addaura(shiftless(center.h), statecolor, 0); // todo statecolor not changed
       }
     if(acc) {
       poly_outline = 0xFF;

@@ -1,29 +1,16 @@
 // -noscr -slides DHRG rv_latex=1 -slide-textoff -title c000
 
 #include "rogueviz.h"
+#include "embeddings/embeddings.h"
+#include "dhrg/dhrg.h"
 
-#define RVPATH HYPERPATH "rogueviz/"
-#if CAP_RVPRES
-namespace dhrg {
-  void graphv(std::string s);
-  extern double graph_R;
-  extern int N;
-  extern int iterations;
-  void fixedges();
-  void unsnap();
-  bool dhrg_animate(int sym, int uni);
-  void rvcoords();
-  void clear();
-  
-  void prepare_pairs();
-  std::vector<int> path(int src);
-  int get_actual(int src);
-  void prepare_goal(int goal);
-  }
-
+#if CAP_RVSLIDES
 namespace hr {
 
 using namespace rogueviz::pres;
+using namespace rogueviz::embeddings;
+
+shared_ptr<embedding> dhrg_embedding;
 
 int find_vertex(string name) { 
   int id = 0;
@@ -52,12 +39,12 @@ int me, them;
 void greedy_test() {
   me = find_vertex("Eryk_Kopczynski");
   auto me2 = find_vertex("Erich_Grädel");
-  dhrg::prepare_pairs();  
-  dhrg::rvcoords();
+  prepare_pairs();  
+  reenable_embedding();
   them = find_vertex(dhrg::iterations ? "Florian_Willich" : "Stéphane_Chrétien");
-  for(int goal=0; goal<dhrg::N; goal++) {
-    dhrg::prepare_goal(goal);
-    auto p = dhrg::path(me2);
+  for(int goal=0; goal<isize(rogueviz::vdata); goal++) {
+    prepare_goal(goal);
+    auto p = path(me2);
     if(p.back() == goal) {
       println(hlog, "actual = ", dhrg::get_actual(me), " p = ", p, " ~ ", rogueviz::vdata[p.back()].name);
       }
@@ -69,9 +56,12 @@ void greedy_test() {
   }
 
 void launch_sea() {
-  enable_canvas_backup('0');  
+  enable_canvas_backup(&ccolor::plain);
   start_game();
-  dhrg::graphv("rogueviz/dhrg-data/sea-ppl");      
+  read_edgelist("rogueviz/dhrg-data/sea-ppl-links.txt");
+  read_polar("rogueviz/dhrg-data/sea-ppl-coordinates.txt");
+  dhrg_embedding = current;
+  dhrg::graph_from_rv();
   resetview();
   }
 
@@ -150,7 +140,7 @@ color_t dhrg_grid = 0x00FF00A0;
 
 void graph_visuals(presmode mode) {
   if(mode == pmStart) {
-    slide_backup(patterns::canvasback, 0xFF00);
+    slide_backup(ccolor::plain.ctab, colortable{0xFF00});
     slide_backup(canvas_default_wall, waInvisibleFloor);
     slide_backup(rogueviz::showlabels, true);
     slide_backup(rogueviz::ggamma, 2);
@@ -193,8 +183,8 @@ void graph_visuals(presmode mode) {
 
 void swap_snap() {
   snapped = !snapped;
-  if(snapped) { for(auto& v: rogueviz::vdata) v.m->at = Id; dhrg::fixedges(); }
-  if(!snapped) dhrg::unsnap();
+  if(snapped) { for(auto& v: rogueviz::vdata) v.be(v.m->base, Id); }
+  if(!snapped) enable_embedding(dhrg_embedding);
   }
 
 void dhrg_hooks() {
@@ -296,21 +286,16 @@ slide dhrg_slides[] = {
   
   {"Animated Hyperbolic Plane", 10, LEGAL::ANY | QUICKGEO | NOTITLE, "Scroll the map to learn how hyperbolic geometry works.", 
     [] (presmode mode) {
-      setCanvas(mode, 'F');
-      if(mode == pmStart) {
-        stop_game();
+      setCanvas(mode, &ccolor::football, [] {
+        tour::slide_backup(ccolor::which->ctab, colortable{0x10F010, 0x104010});
         tour::slide_backup(smooth_scrolling, true);
-        tour::slide_backup(colortables['F'][0], 0x10F010);
-        tour::slide_backup(colortables['F'][1], 0x104010);
-        tour::slide_backup(patterns::canvasback, 0x10F010);
         tour::slide_backup(vid.use_smart_range, 2);
         tour::slide_backup(vid.smart_range_detail, 5);
         tour::slide_backup(mapeditor::drawplayer, false);
         tour::slide_backup(no_find_player, true);
         tour::slide_backup(draw_centerover, false);
         tour::slide_backup(vid.axes, 0);
-        start_game();
-        }        
+        });
       // mine_slide(mode, geom_pentagos, cl_pentagons, chessboard_assigner);
       no_other_hud(mode);
       }
@@ -320,7 +305,7 @@ slide dhrg_slides[] = {
     "Hyperbolic geometry has a tree-like structure, and expands exponentially.\n\nThis tree-like structure has been used in applications, for visualizing and modeling tree-like hierarchical structures.\n\nPress '5' to show the expansion.\n\n"
     ,
     [] (presmode mode) {
-      setCanvas(mode, '0');
+      setWhiteCanvas(mode, []{});
       view_treelike(mode);
       // mine_slide(mode, geom_pentagos, cl_pentagons, chessboard_assigner);
       if(mode == pmFrame) clearMessages();
@@ -332,12 +317,15 @@ slide dhrg_slides[] = {
         return false;
         });
       add_temporary_hook(mode, dialog::hooks_display_dialog, 110, [] () {
-        if((cmode && sm::EXPANSION) && show_distance_lists) {
+        if((cmode & sm::EXPANSION) && show_distance_lists) {
           vector<dialog::item> it = std::move(dialog::items);
           dialog::items.clear();
+          dialog::start_list(1600, 1600, 'a');
+          bool to_end = true;
           for(auto& d: it) {
-            if(d.key == 'S' || d.key == 'C') continue;
+            if(d.key == 'S' || d.key == 'C' || d.key == 'D') continue;
             if(d.body == "" && d.value == "") continue;
+            if(to_end && d.body.find("(") != string::npos) { println(hlog, "END"); dialog::end_list(); to_end = false; }
             string latexbody = d.body + d.value;
             auto rep = [&] (string s, string t) {
               while(latexbody.find(s) != string::npos)
@@ -485,13 +473,14 @@ slide dhrg_slides[] = {
 
   {"Basic Algorithmic Properties", 999, LEGAL::NONE | QUICKGEO | NOTITLE, "Basic algorithmic properties of hyperbolic tessellations... press '5' to show some shortest distances.",
     [] (presmode mode) {
-      setCanvas(mode, '0');
+      setWhiteCanvas(mode, [] {});
       view_treelike(mode);
       if(mode == pmStart) tour::slide_backup(number_coding, ncNone);
       if(mode == pmStart) tour::slide_backup(vid.creature_scale, 1);
       if(mode == pmStart) cpath.clear();
       if(mode == pmKey) prepare_cpath();
       rogueviz::rv_hook(hooks_frame, 100, [] {
+        if(nomap) return;
         if(cpath.size()) {
           static bool drawn = true;
           if(drawn) println(hlog, "drawn"), drawn = false;

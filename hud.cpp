@@ -47,6 +47,7 @@ EX int subclass(int i) {
 #define GLYPH_INSQUARE   1024
 #define GLYPH_INLANDSCAPE 2048
 #define GLYPH_ACTIVE 4096
+#define GLYPH_CIRCLE 8192
 
 #if HDR
 enum eGlyphsortorder {
@@ -58,6 +59,9 @@ enum eGlyphsortorder {
 #endif
 
 EX eGlyphsortorder glyphsortorder;
+EX string pinnedglyphs;
+EX vector<int> revglyphpinned;
+EX unsigned glyphpinned[int(ittypes) + int(motypes)];
   
 int zero = 0;
 
@@ -73,12 +77,43 @@ bool ikappear(int i) {
   return ikmerge(i);
   }
 
-const int glyphs = ittypes + motypes;
+const int glyphs = int(ittypes) + int(motypes);
 
 int gfirsttime[glyphs], glasttime[glyphs], gcopy[glyphs], ikland[glyphs];
 int glyphorder[glyphs];
 int glyphphase[glyphs];
 int glyph_lastticks;
+
+EX void updateglyphpinned() {
+  revglyphpinned.clear();
+  for(int i=0; i<glyphs; i++) glyphpinned[i] = 0;
+  if(!pinnedglyphs.empty()) {
+    unsigned n = 0;
+    exp_parser ep;
+    ep.s = pinnedglyphs;
+    do {
+      try {
+        int i = ep.iparse();
+        if(i >= 0 && i < glyphs) {
+          revglyphpinned.push_back(i);
+          glyphpinned[i] = ++n;
+          }
+        }
+      catch(hr_parse_exception&) {
+        continue;
+        }
+      } while(ep.eat(","));
+    }
+  }
+
+EX void updatepinnedglyphs() {
+  std::stringstream ss;
+  for(auto& i: revglyphpinned) {
+    ss << i << ",";
+    }
+  pinnedglyphs = ss.str();
+  if(!pinnedglyphs.empty()) pinnedglyphs.pop_back();
+  }
 
 void updatesort() {
   for(int i=0; i<glyphs; i++) {
@@ -123,6 +158,8 @@ int glyphcorner(int i) {
   }
 
 bool glyphsort(int i, int j) {
+  if(glyphpinned[i] != glyphpinned[j])
+    return glyphpinned[i] - 1 < glyphpinned[j] - 1; // We subtract 1 from both sides to make 0 wrap around, so that it compares greater than any positive value
   if(subclass(i) != subclass(j))
     return subclass(i) < subclass(j);
   if(glyphsortorder == gsoFirstTop)
@@ -167,6 +204,7 @@ int glyphflags(int gid) {
       if(itemclass(i) == IC_ORB && items[i] < 10) f |= GLYPH_RUNOUT;
       }
     if(i == orbToTarget) f |= GLYPH_TARGET;
+    if(orbToTarget == itOrbSpace && mouseover && i == mouseover->item) f |= GLYPH_CIRCLE;
     if(!less_in_portrait) f |= GLYPH_INPORTRAIT;
     if(!less_in_landscape) f |= GLYPH_INLANDSCAPE;
     }
@@ -210,13 +248,13 @@ bool displayglyph(int cx, int cy, int buttonsize, char glyph, color_t color, int
       if(m == moKrakenH) bsize /= 3;
       if(m == moKrakenT || m == moDragonTail) bsize /= 2;
       if(m == moSlime) bsize = (2*bsize+1)/3;
-      transmatrix V = atscreenpos(cx+buttonsize/2, cy, bsize*zoom);
+      shiftmatrix V = atscreenpos(cx+buttonsize/2, cy, bsize*zoom);
       if(isWorm(m) && cgi.wormscale != 1) 
         for(int i=0; i<GDIM; i++)
           V[i][i] /= cgi.wormscale;
       int mcol = color;
       mcol -= (color & 0xFCFCFC) >> 2;
-      drawMonsterType(m, NULL, shiftless(V), mcol, glyphphase[id]/500.0, NOCOLOR);
+      drawMonsterType(m, NULL, V, mcol, glyphphase[id]/500.0, NOCOLOR);
       }
     else {
       eItem it = eItem(id);
@@ -241,14 +279,14 @@ bool displayglyph(int cx, int cy, int buttonsize, char glyph, color_t color, int
       icol -= (color & 0xFCFCFC) >> 2;
       int ic = itemclass(it);
       bsize = bsize * zoom;
-      transmatrix V = atscreenpos(cx+buttonsize/2, cy, bsize);
+      shiftmatrix V = atscreenpos(cx+buttonsize/2, cy, bsize);
       double t =
         (ic == IC_ORB || ic == IC_NAI) ? ticks*2 : 
         ((glyph == 't' && qty%5) || it == itOrbYendor) ? ticks/2 : 
         it == itTerra ? glyphphase[id] * 3 * M_PI + 900 * M_PI:
         glyphphase[id] * 2;
 
-      drawItemType(it, NULL, shiftless(V), icol, t, false);
+      drawItemType(it, NULL, V, icol, t, false);
       
       int c1 = max(color_diff(color, backcolor), color_diff(color, bordcolor));
       if(c1 < 0x80) {
@@ -261,11 +299,29 @@ bool displayglyph(int cx, int cy, int buttonsize, char glyph, color_t color, int
     sortquickqueue();
     quickqueue();
     }
-  else if(glyph == '*')
+  else if(zh_ascii) {
+    const char* zh;
+
+    if(isMonster) {
+      eMonster m = eMonster(id - ittypes);
+      zh = XLAT1_acc(minf[m].name, 8);
+      }
+    else {
+      eItem it = eItem(id);
+      zh = XLAT1_acc(iinf[it].name, 8);
+      }
+
+    if(!zh) goto non_zh;
+    dynamicval<fontdata*> df(cfont, cfont_chinese);
+    displaystr(cx + buttonsize/2, cy, 0, glsize, zh, darkenedby(color, b?0:1), 0);
+    }
+  else non_zh: if(glyph == '*')
     displaychr(cx + buttonsize/2, cy+buttonsize/4, 0, glsize*3/2, glyph, darkenedby(color, b?0:1));
   else
     displaychr(cx + buttonsize/2, cy, 0, glsize, glyph, darkenedby(color, b?0:1));
   
+  if(flags & GLYPH_CIRCLE) drawCircle(cx + buttonsize/2, cy, buttonsize/2, darkena(color, 0, 0xFF));
+
   string fl = "";
   string str = its(qty);
 
@@ -286,7 +342,7 @@ bool displayglyph(int cx, int cy, int buttonsize, char glyph, color_t color, int
     qty < 100 ? buttonsize / 2 :
     buttonsize / 3;
 
-  if(id == moMutant + ittypes && clearing::imputed.nonzero()) {
+  if(id == int(moMutant) + int(ittypes) && clearing::imputed.nonzero()) {
     bignum bn = clearing::imputed + qty;
     str = short_form(bn);
     bsize = buttonsize / 4;
@@ -410,7 +466,7 @@ void drawMobileArrow(int i) {
   double dx = xmove + rad*(1+SKIPFAC-.2)/2 * cos(alpha);
   double dy = yb + rad*(1+SKIPFAC-.2)/2 * sin(alpha);
   
-  queuepolyat(shiftless(atscreenpos(dx, dy, scale) * spin(-alpha)), cgi.shArrow, col, PPR::MOBILE_ARROW);
+  queuepolyat(atscreenpos(dx, dy, scale) * spin(-alpha), cgi.shArrow, col, PPR::MOBILE_ARROW);
   }
 #endif
 
@@ -439,15 +495,47 @@ EX void draw_crosshair() {
   if(crosshair_color && crosshair_size > 0) {
     initquickqueue();
     vid.linewidth = 1;
-    queueline(shiftless(tC0(atscreenpos(xc - crosshair_size, yc, 1))), shiftless(tC0(atscreenpos(xc + crosshair_size, yc, 1))), crosshair_color).prio = PPR::SUPERLINE;
-    queueline(shiftless(tC0(atscreenpos(xc, yc - crosshair_size, 1))), shiftless(tC0(atscreenpos(xc, yc + crosshair_size, 1))), crosshair_color).prio = PPR::SUPERLINE;
+    queueline(tC0(atscreenpos(xc - crosshair_size, yc)), tC0(atscreenpos(xc + crosshair_size, yc)), crosshair_color).prio = PPR::SUPERLINE;
+    queueline(tC0(atscreenpos(xc, yc - crosshair_size)), tC0(atscreenpos(xc, yc + crosshair_size)), crosshair_color).prio = PPR::SUPERLINE;
     quickqueue();
     }
   return;
   }
 
-EX bool less_in_portrait, less_in_landscape;
-  
+EX bool less_in_portrait, less_in_landscape, orb_treasure_gap;
+
+EX string mode_description() {
+  string md;
+  if(autocheat) md += " god";
+  if(casual) md += " casual";
+  else if(cheater) md += " cheat";
+  if(inv::on) md += " inv";
+  if(tour::on) md += " tour";
+  if(shmup::on) md += " shmup";
+  if(multi::players > 1) md += " P" + its(multi::players);
+  if(pureHardcore()) md += " hardcore";
+  else if(hardcore) md += " partial hardcore";
+  if(daily::on) md += " strange";
+  if(bow::crossbow_mode()) md += " b/" + bow::bowName[bow::style];
+  if(land_structure != default_land_structure())
+    md += " " + land_structure_name(true);
+  if(randomPatternsMode) md += " RPM";
+  if(use_custom_land_list) md += " custom";
+  if(geometry != gNormal || !BITRUNCATED)
+    md = md + " " + full_geometry_name();
+  return md;
+  }
+
+EX string mode_description1() {
+  string md = mode_description();
+  if(md == "") return "standard";
+  return md.substr(1);
+  }
+
+EX bool radar_drawn;
+EX bool hide_kills;
+EX bool hide_watermark;
+
 EX void drawStats() {
   if(vid.stereo_mode == sLR) return;
   draw_crosshair();
@@ -463,19 +551,25 @@ EX void drawStats() {
 
   bool cornermode = (vid.xres > vid.yres * 85/100 && vid.yres > vid.xres * 85/100);
   
+  bool hyb = mhybrid;
+
   #if MAXMDIM >= 4
-  if(geometry == gRotSpace || geometry == gProduct) rots::draw_underlying(!cornermode);
+  if(mhybrid) hybrid::draw_underlying(!cornermode);
   #endif
   
   {
   
+  radar_drawn = false;
   if(vid.radarsize > 0 && h)
   #if CAP_RACING
     if(!racing::on)
   #endif
     if(!peace::on)
     if(!(cmode & sm::MISSION))
-      draw_radar(cornermode);
+      radar_drawn = true;
+
+  if(radar_drawn)
+    draw_radar(cornermode);
 
   flat_model_enabler fme;
 
@@ -502,10 +596,11 @@ EX void drawStats() {
 #else
     {}
 #endif
+  else if(!hr_hud_enabled) {}
   else if(cornermode) {
     int bycorner[4];
     for(int u=0; u<4; u++) bycorner[u] = 0;
-    for(int i=0; i<glyphs; i++) if(ikappear(i) && (glyphflags(i) & GLYPH_INSQUARE))
+    for(int i=0; i<glyphs; i++) if((ikappear(i) || glyphpinned[i]) && (glyphflags(i) & GLYPH_INSQUARE))
       bycorner[glyphcorner(i)]++;
     updatesort();
     stable_sort(glyphorder, glyphorder+glyphs, glyphsort);
@@ -524,7 +619,7 @@ EX void drawStats() {
           vector<int> glyphstoshow;
           for(int i=0; i<glyphs; i++) {
             int g = glyphorder[i];
-            if(ikappear(g) && (glyphflags(g) & GLYPH_INSQUARE) && glyphcorner(g) == cor)
+            if((ikappear(g) || glyphpinned[g]) && (glyphflags(g) & GLYPH_INSQUARE) && glyphcorner(g) == cor)
               glyphstoshow.push_back(g);
             }
           for(int u=vid.fsize; u<vid.xres/2-s; u += s)
@@ -537,7 +632,8 @@ EX void drawStats() {
               if(cor&1) cx = vid.xres-1-s-cx;
               if(cor&2) cy = vid.yres-1-cy;
     
-              displayglyph2(cx, cy, s, glyphstoshow[next++]);
+              int g = glyphstoshow[next++];
+              if(ikappear(g)) displayglyph2(cx, cy, s, g);
               }
           break;
           }
@@ -546,17 +642,22 @@ EX void drawStats() {
     }
   
   else {
-  
+    auto& cd = current_display;
+
     bool portrait = vid.xres < vid.yres;
-    int colspace = portrait ? (current_display->ycenter - current_display->scrsize - 3 * vid.fsize) : (vid.xres - vid.yres - 16) / 2;
-    int rowspace = portrait ? vid.xres - 16 : vid.yres - vid.fsize * (vid.msgleft ? 9 : 4);
+    int colspace = portrait ? (cd->ycenter - cd->scrsize - 3 * vid.fsize) : (vid.xres - vid.yres - 16) / 2;
+    int radar_size = 0;
+    if(radar_drawn) radar_size = 2 * vid.radarsize + 10 + 3.5 * vid.fsize;
+    if(hyb && hybrid::underlying_scale) radar_size = max<int>(radar_size, min(cd->xsize, cd->ysize) * hybrid::underlying_scale + 10 + 3.5 * vid.fsize);
+
+    int rowspace = portrait ? vid.xres - 16 : vid.yres - max(radar_size, vid.fsize * (vid.msgleft ? 9 : 4));
     int colid[4], rowid[4];
     int maxbyclass[4];
     for(int z=0; z<4; z++) maxbyclass[z] = 0;
 
     flagtype flag = portrait ? GLYPH_INPORTRAIT : GLYPH_INLANDSCAPE;
 
-    for(int i=0; i<glyphs; i++) if(ikappear(i))
+    for(int i=0; i<glyphs; i++) if(ikappear(i) || glyphpinned[i])
       if(glyphflags(i) & flag)
         maxbyclass[glyphclass(i)]++;
     int buttonsize;
@@ -569,6 +670,7 @@ EX void drawStats() {
       rows = rowspace / buttonsize; if(!rows) return;
       int coltaken = 0;
       for(int z=0; z<4; z++) {
+        if(z == 1 && orb_treasure_gap) coltaken++;
         if(z == 2 && !portrait) {
           if(coltaken > columns) { vid.killreduction++; continue; }
           coltaken = 0;
@@ -591,7 +693,7 @@ EX void drawStats() {
     
     for(int i0=0; i0<glyphs; i0++) {
       int i = glyphorder[i0];
-      if(!ikappear(i)) continue;
+      if(!ikappear(i) && !glyphpinned[i]) continue;
       int z = glyphclass(i);
       int imp = glyphflags(i);
       if(!(imp & flag)) continue;
@@ -607,7 +709,7 @@ EX void drawStats() {
   
       rowid[z]++; if(rowid[z] >= rows) rowid[z] = 0, colid[z]++;
       
-      displayglyph2(cx, cy, buttonsize, i);    
+      if(ikappear(i)) displayglyph2(cx, cy, buttonsize, i);
       }
     }
   }
@@ -674,7 +776,7 @@ EX void drawStats() {
       while(siz > 4 && textwidth(siz, s) > vid.xres - textwidth(vid.fsize, scoreline)) siz--;
       }
     
-    if(displayButtonS(8, top_y, s, forecolor, 0, siz)) {
+    if(!hide_kills && displayButtonS(8, top_y, s, forecolor, 0, siz)) {
       instat = true;
       getcstat = SDLK_F1;
       if(long_kills) { mouseovers = " "; help = generateHelpForMonster(moMutant); }
@@ -691,29 +793,13 @@ EX void drawStats() {
     }
   string vers = VER;
   if(true) {
-    if(casual) vers += " casual";
-    if(autocheat) vers += " god";
-    else if(cheater) vers += " cheat";
-    if(yendor::on) vers += " Yendor";
-    if(tactic::on) vers += " PTM";
-    if(inv::on) vers += " inv";
-    if(tour::on) vers += " tour";
-    if(shmup::on) vers += " shmup";
-    if(multi::players > 1) vers += " P" + its(multi::players);
-    if(pureHardcore()) vers += " hardcore";
-    else if(hardcore) vers += " partial hardcore";
+    if(modename.count(current_modecode)) vers += " '" + modename[current_modecode] + "' ";
+    vers += mode_description();
     if(peace::on) vers += " peace";
     if(racing::on) vers += " racing";
-    if(daily::on) vers += " strange";
-    if(bow::weapon && bow::style == bow::cbBull) vers += " b/bull";
-    if(bow::weapon && bow::style == bow::cbGeodesic) vers += " b/geo";
-    if(land_structure != default_land_structure())
-      vers += land_structure_name(true);
     if(princess::challenge) vers += " Princess";
-    if(randomPatternsMode) vers += " RPM";
-    
-    if(geometry != gNormal || !BITRUNCATED) 
-      vers = vers + " " + full_geometry_name();
+    if(yendor::on) vers += " Yendor";
+    if(tactic::on) vers += " PTM";
     }
   if(!nofps) vers += XLAT(" fps: ") + its(calcfps());
   
@@ -725,7 +811,7 @@ EX void drawStats() {
     }
   else 
   #endif
-  if(displayButtonS(4, vid.yres - 4 - vid.fsize/2 - hud_margin(1), vers, 0x202020, 0, vid.fsize/2)) {
+  if(!hide_watermark && displayButtonS(4, vid.yres - 4 - vid.fsize/2 - hud_margin(1), vers, 0x202020, 0, vid.fsize/2)) {
     mouseovers = XLAT("frames per second"),
     getcstat = SDLK_F1,
     instat = true,

@@ -136,7 +136,7 @@ EX namespace bt {
           h->emeraldval = gmod((parent->emeraldval - d1) * 7508, 15015);
         break;
       case gTernary:
-        if(d < 2)
+        if(d <= 2)
           h->emeraldval = gmod(parent->emeraldval * 3 + d, 10010);
         else
           h->emeraldval = gmod((parent->emeraldval - d1) * 3337, 10010);
@@ -507,7 +507,7 @@ EX namespace bt {
         }
       }
 
-    const transmatrix iadj(heptagon *h, int dir) { heptagon *h1 = h->cmove(dir); return adj(h1, h->c.spin(dir)); }
+    transmatrix iadj(heptagon *h, int dir) { heptagon *h1 = h->cmove(dir); return adj(h1, h->c.spin(dir)); }
   
     void virtualRebase(heptagon*& base, transmatrix& at) override {
     
@@ -765,9 +765,7 @@ EX namespace bt {
       t[10] = it * t[6] * t[2];
       t[11] = it * t[1];
 
-      if(debugflags & DF_GEOM)
-        for(int a=0; a<12; a++) 
-          println(hlog, t[a]);
+      if(debug_geometry) for(int i=0; i<12; i++) println(hlog, "direct_tmatrix[", i, "] is ", t[i]);
 
       use_direct >>= 1;
       }
@@ -854,14 +852,35 @@ auto bt_config = arg::add2("-btwidth", [] {arg::shift_arg_formula(vid.binary_wid
 #endif
 
 EX bool pseudohept(cell *c) {
-  if(WDIM == 2)
-    return c->type & c->master->distance & 1;
-  else if(geometry == gHoroRec)
-    return c->c.spin(S7-1) == 0 && (c->master->distance & 1) && c->cmove(S7-1)->c.spin(S7-1) == 0;
-  else if(geometry == gHoroTris)
-    return c->c.spin(S7-1) == 0 && (c->master->distance & 1);
-  else
-    return (c->master->zebraval == 1) && (c->master->distance & 1);
+  switch(geometry) {
+    case gBinary4:
+      c->cmove(3);
+      return (c->master->distance & 1) && (c->c.spin(3) == 0);
+
+    case gBinaryTiling:
+      return c->master->distance & c->type & 1;
+
+    case gTernary: {
+      return c->master->emeraldval & 1;
+      /* auto m = dynamic_cast<hrmap_binary*> (current_map());
+      auto o = m->origin;
+      int flips = 0;
+      while(m != o) {
+        if(m->master->distance >= o->master->distance) { if(m->c.spin(4) == 1) flips++; m = m->cmove(4); }
+        }
+    heptagon *origin;
+      c->cmove(4); return (c->c.spin(4) == 1); */
+      }
+
+    case gHoroRec:
+      return c->c.spin(S7-1) == 0 && (c->master->distance & 1) && c->cmove(S7-1)->c.spin(S7-1) == 0;
+
+    case gHoroTris:
+      return c->c.spin(S7-1) == 0 && (c->master->distance & 1);
+
+    default:
+      return (c->master->zebraval == 1) && (c->master->distance & 1);
+    }
   }
 
 EX pair<gp::loc, gp::loc> gpvalue(heptagon *h) {

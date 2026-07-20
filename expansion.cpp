@@ -400,6 +400,7 @@ int type_in_quick(expansion_analyzer& ea, cell *c, const cellfunction& f) {
 EX bool sizes_known() {
   #if MAXMDIM >= 4
   if(reg3::exact_rules()) return true;
+  if(reg3::in()) return false;
   #endif
   if(closed_manifold) return false;
   // Castle Anthrax is infinite
@@ -409,7 +410,8 @@ EX bool sizes_known() {
   if(aperiodic) return false;
   if(currentmap->strict_tree_rules()) return true;
   if(arb::in()) return false;
-  return true;  
+  if(INVERSE) return false;
+  return true;
   }
 
 EX bool trees_known() {
@@ -468,11 +470,11 @@ EX int curr_dist(cell *c) {
     case dfStart:
       return celldist(c);
     case dfWorld:
-      if((isCyclic(c->land) || among(c->land, laCanvas, laCaribbean, laStorms, laRlyeh))) {
+      if((isCyclic(c->land) || among(c->land, laCanvas, laCaribbean, laStorms, laRlyeh) || among(land_structure, lsHorodisks, lsVoronoi))) {
         if(eubinary || c->master->alt) return celldistAlt(c);
         return UNKNOWN;
         }
-      return inmirror(c) ? (c->landparam & 255) : c->landparam;
+      return inmirror(c) ? (c->landparam & 255) : isEquidLand(c) ? c->landparam : UNKNOWN;
     }
   return 0;    
   }
@@ -606,8 +608,11 @@ void celldrawer::do_viewdist() {
  
   switch(number_coding) {
     case ncDistance: { 
-      label = cd == UNKNOWN ? "?" : its(cd);
+      label = among(cd, ALTDIST_BOUNDARY, ALTDIST_UNKNOWN, ALTDIST_ERROR, UNKNOWN) ? "?" : its(cd);
       dc = distcolors[cd];
+      // the '?' cases should have different colors
+      if(cd == UNKNOWN) dc = distcolors[ALTDIST_BOUNDARY+1];
+      if(cd == ALTDIST_ERROR) dc = distcolors[ALTDIST_BOUNDARY+2];
       break;
       }
     case ncType: {
@@ -654,7 +659,7 @@ void celldrawer::do_viewdist() {
   if(!dist_label_colored) dc = dist_label_color;
 
   if(label != "")
-    queuestr(V, (isize(label) > 1 ? .6 : 1), label, 0xFF000000 + dc, 1);
+    queuestr(V, (isize(label) > 1 ? .6 : 1) * mapfontscale / 100, label, 0xFF000000 + dc, 1);
   }
 
 EX void viewdist_configure_dialog() {
@@ -731,6 +736,19 @@ string produce_coef_formula(vector<int> coef) {
   }
 
 EX bool auto_extend = true;
+EX bool use_sight_range_instead = true;
+
+EX int count_max_cells = 100000;
+EX int count_max_dist = 999;
+
+void configure_counter() {
+  dialog::init("");
+  add_edit(use_analyzer);
+  add_edit(count_max_dist);
+  add_edit(count_max_cells);
+  add_edit(use_sight_range_instead);
+  dialog::display();
+  }
 
 void expansion_analyzer::view_distances_dialog() {
   static int lastticks;
@@ -748,8 +766,16 @@ void expansion_analyzer::view_distances_dialog() {
   auto& expansion = get_expansion();
   
   bool really_use_analyzer = use_analyzer && sizes_known();
+  bool nomore = false;
+  bool knowall = false;
   
   if(really_use_analyzer) {
+    dialog::addSelItem(XLAT("based on analysis"),
+      reg3::exact_rules() ? XLAT("3D rules") :
+      currentmap->strict_tree_rules() ? XLAT("generated rules") :
+      XLAT("built-in rules"), 'A'
+      );
+    dialog::add_action_push(configure_counter);
     int t;
     if(reg3::exact_rules() || currentmap->strict_tree_rules()) {
       if(!N) preliminary_grouping();      
@@ -761,33 +787,47 @@ void expansion_analyzer::view_distances_dialog() {
       qty[r] = expansion.get_descendants(r, t);
     }
   else {
+    int count_range = (GDIM == 2 && use_sight_range_instead) ? get_sightrange() : count_max_dist;
+    count_range = min(count_range, count_max_dist);
+    count_range = min(count_range, maxlen-1);
+
+    celllister cl(cwt.at, count_range, count_max_cells, NULL);
+    if(cl.reason == celllister::srAll) knowall = true;
+    if(cl.reason == celllister::srCount) count_range = cl.dists.back();
+
     if(distance_from == dfPlayer) {
-      celllister cl(cwt.at, closed_manifold ? maxlen-1 : gamerange(), 100000, NULL);
       for(int d: cl.dists)
         if(d >= 0 && d < maxlen) qty[d]++;
       }
     else {
-      celllister cl(cwt.at, closed_manifold ? maxlen-1 : gamerange(), 100000, NULL);
       for(cell *c: cl.lst) if((not_only_descendants || is_descendant(c)) && curr_dist(c) < maxlen) qty[curr_dist(c)]++;
       }
+    dialog::addSelItem(XLAT("cell counting range"), its(count_range), 'A');
+    dialog::add_action_push(configure_counter);
     #if !CAP_GMP
-    if(sizes_known() && !not_only_descendants) {
+    if((sizes_known() || bt::in()) && !not_only_descendants && !knowall) {
       find_coefficients();
-      if(gamerange()+1 >= valid_from && coefficients_known == 2) {
-        for(int i=gamerange()+1; i<maxlen; i++)
+      if(count_range+1 >= valid_from && coefficients_known == 2) {
+        for(int i=count_range+1; i<maxlen; i++)
           for(int j=0; j<isize(coef); j++) {
             qty[i].addmul(qty[i-1-j], coef[j]);
             }
         }
       }
+    else {
+      maxlen = min(maxlen, count_range+1);
+      if(maxlen == count_range+1) nomore = true;
+      }
     #endif
     }
 
   dialog::start_list(1600, 1600, 'a');
-  for(int i=0; i<maxlen; i++) if(!qty[i].digits.empty()) {
+  bool was_zero = false;
+  for(int i=0; i<maxlen; i++) if(!qty[i].digits.empty() || !was_zero) {
     dialog::addSelItem(qty[i].get_str(100), " " + its(i), dialog::list_fake_key);
     auto& last = dialog::lastItem();
     last.color = last.colorv = distcolors[i];
+    was_zero = qty[i].digits.empty();
     }
   dialog::end_list();
 
@@ -824,7 +864,7 @@ void expansion_analyzer::view_distances_dialog() {
     });
 
   dialog::display();
-  if(auto_extend && dialog::list_skip + dialog::list_actual_size == dialog::list_full_size) last_distance++;
+  if(auto_extend && dialog::list_skip + dialog::list_actual_size == dialog::list_full_size && !was_zero && !nomore && !knowall) last_distance++;
   }
 
 EX void enable_viewdists() {
@@ -844,7 +884,6 @@ bool expansion_handleKey(int sym, int uni) {
     dialog::handleNavigation(sym, uni);
     if(uni == 'S' && (cmode & sm::EXPANSION)) scrolling_distances = !scrolling_distances;
     else if(uni == 'C') pushScreen(viewdist_configure_dialog);
-    else if(uni == 'A' && (cmode & sm::EXPANSION)) use_analyzer = !use_analyzer;
     else if(sym == SDLK_ESCAPE) dialog::list_skip = 0, viewdists = false;
     else return false;
     return true;

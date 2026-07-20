@@ -137,7 +137,7 @@ renderbuffer::renderbuffer(int x, int y, bool gl) : x(x), y(y) {
     else
       valid = true;
 
-    DEBB(DF_GRAPH, ("Framebuffer remains = ", int(FramebufferName), " (", int(valid), ")"));
+    DEBB(debug_graph, ("Framebuffer remains = ", int(FramebufferName), " (", int(valid), ")"));
     GLERR("initialization");
     
     rb.reset();
@@ -226,7 +226,7 @@ renderbuffer::~renderbuffer() {
 #endif
 #if CAP_SDL
   if(srf) 
-    SDL_FreeSurface(srf);
+    SDL_DestroySurface(srf);
 #endif
   }
 
@@ -238,7 +238,7 @@ void renderbuffer::clear(color_t col) {
     }
   #endif
   #if CAP_SDL
-  SDL_FillRect(srf, NULL, col);
+  SDL_FillSurfaceRect(srf, NULL, col);
   #endif
   }
 

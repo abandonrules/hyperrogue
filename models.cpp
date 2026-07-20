@@ -137,8 +137,10 @@ projection_configuration::projection_configuration() {
   axial_angle = 90;
   ptr_model_orientation = new trans23;
   ptr_ball = new transmatrix;
-  *ptr_ball = cspin(1, 2, 20._deg);
+  *ptr_ball = cspin(2, 1, 20._deg);
   ptr_camera = new transmatrix; *ptr_camera = Id;
+  offside = 0; offside2 = M_PI;
+  small_hyperboloid = false;
   }
 
 EX namespace models {
@@ -234,7 +236,7 @@ EX namespace models {
     }    
   
   EX bool has_orientation(eModel m) {
-    if(is_perspective(m) && panini_alpha) return true;
+    if(is_perspective(m) && vid.stereo_mode == sPanini) return true;
     if(nonisotropic) return false;    
     return (mdinf[m].flags & mf::orientation);
     }
@@ -265,10 +267,16 @@ EX namespace models {
   
   EX bool product_model(eModel m) {
     if(!gproduct) return false;
-    if(mdinf[m].flags & mf::product_special) return false;
+    if(mdinf[m].flags & mf::product_special && !(pmodel == mdDisk && pconf.alpha != 1)) return false;
     return true;
     }
   
+  EX bool conformal_product_model() {
+    if(!in_h2xe()) return false;
+    if(pmodel == mdDisk && pconf.alpha == 1) return true;
+    return pmodel == mdHalfplane;
+    }
+
   int editpos = 0;
   
   EX string get_model_name(eModel m) {
@@ -276,6 +284,7 @@ EX namespace models {
     if(m == mdPerspective && gproduct) return XLAT("native perspective");
     if(gproduct) return PIU(get_model_name(m));
     if(nonisotropic) {
+      if(m == mdHorocyclic && sl2) return XLAT("layered equidistant");
       if(m == mdHorocyclic && !sol) return XLAT("simple model: projection");
       if(m == mdPerspective) return XLAT("simple model: perspective");
       if(m == mdGeodesic) return XLAT("native perspective");
@@ -423,6 +432,7 @@ EX namespace models {
     USING_NATIVE_GEOMETRY_IN_RUG;
     #endif
     dialog::init(XLAT("models & projections"));
+    mouseovers = XLAT("see http://www.roguetemple.com/z/hyper/models.php");
     
     auto vpmodel = vpconf.model;
     
@@ -619,8 +629,16 @@ EX namespace models {
     if(vpmodel == mdFisheye) 
       add_edit(vpconf.fisheye_param);
 
+    if(vpmodel == mdFisheye2) {
+      add_edit(vpconf.fisheye_param);
+      add_edit(vpconf.fisheye_alpha);
+      }
+
     if(is_hyperboloid(vpmodel))
       add_edit(pconf.show_hyperboloid_flat);
+
+    if(among(vpmodel, mdHyperboloid, mdHemisphere))
+      add_edit(pconf.small_hyperboloid);
     
     if(vpmodel == mdCollignon) 
       add_edit(vpconf.collignon_parameter);
@@ -637,6 +655,11 @@ EX namespace models {
     
     if(among(vpmodel, mdLoximuthal, mdRetroHammer, mdRetroCraig)) 
       add_edit(vpconf.loximuthal_parameter);
+
+    if(among(vpmodel, mdPolar)) {
+      add_edit(vpconf.offside);
+      add_edit(vpconf.offside2);
+      }
 
     if(among(vpmodel, mdAitoff, mdHammer, mdWinkelTripel)) 
       add_edit(vpconf.aitoff_parameter);
@@ -675,7 +698,7 @@ EX namespace models {
     bool shaderside_projection = get_shader_flags() & SF_DIRECT;
     if(vid.consider_shader_projection && !shaderside_projection)
       dialog::lastItem().value = XLAT("N/A");
-    if(vid.consider_shader_projection && shaderside_projection && vpmodel)
+    if(vid.consider_shader_projection && shaderside_projection && (get_shader_flags() & SF_NONSPATIAL))
       dialog::lastItem().value += XLAT(" (2D only)");
     dialog::add_action([] { vid.consider_shader_projection = !vid.consider_shader_projection; });
     #endif
@@ -694,7 +717,6 @@ EX namespace models {
     dialog::addBack();
 
     dialog::display();
-    mouseovers = XLAT("see http://www.roguetemple.com/z/hyper/models.php");
     }
     
   EX void quick_model() {
@@ -884,22 +906,6 @@ EX namespace models {
       PHASEFROM(2); 
       shift_arg_formula(vpconf.skiprope);
       }
-    else if(argis("-palpha")) { 
-      PHASEFROM(2); 
-      #if CAP_GL
-      shift_arg_formula(panini_alpha, reset_all_shaders);
-      #else
-      shift_arg_formula(panini_alpha);
-      #endif
-      }
-    else if(argis("-salpha")) { 
-      PHASEFROM(2); 
-      #if CAP_GL
-      shift_arg_formula(stereo_alpha, reset_all_shaders);
-      #else
-      shift_arg_formula(stereo_alpha);
-      #endif
-      }
     else if(argis("-zoom")) { 
       PHASEFROM(2); shift_arg_formula(vpconf.scale);
       }
@@ -924,14 +930,14 @@ EX namespace models {
   #endif  
 
   void add_model_config() {
-    addsaver(polygonal::SI, "polygon sides");
-    param_f(polygonal::STAR, "star", "polygon star factor");
-    addsaver(polygonal::deg, "polygonal degree");
+    param_i(polygonal::SI, "polygon sides");
+    param_f(polygonal::STAR, parameter_names("star", "polygon star factor"));
+    param_i(polygonal::deg, "polygonal degree");
 
-    addsaver(polygonal::maxcoef, "polynomial degree");
+    param_i(polygonal::maxcoef, "polynomial degree");
     for(int i=0; i<polygonal::MSI; i++) {
-      addsaver(polygonal::coefr[i], "polynomial "+its(i)+".real");
-      addsaver(polygonal::coefi[i], "polynomial "+its(i)+".imag");
+      param_f(polygonal::coefr[i], "polynomial "+its(i)+".real");
+      param_f(polygonal::coefi[i], "polynomial "+its(i)+".imag");
       }
 
     auto setrot = [] {
@@ -946,7 +952,7 @@ EX namespace models {
     param_matrix(models::rotation.v3, "rotation3", 3)->editable("auto rotation in 3D", "", 'r')->set_extra(setrot);
     param_i(models::do_rotate, "auto_rotation_mode", 1);
 
-    param_f(pconf.halfplane_scale, "hp", "halfplane scale", 1);
+    param_f(pconf.halfplane_scale, parameter_names("hp", "halfplane scale"), 1);
     
     auto add_all = [&] (projection_configuration& p, string pp, string sp) {
 
@@ -954,41 +960,51 @@ EX namespace models {
       dynamicval<function<bool()>> ds(auto_restrict);
       auto_restrict = [&p] { return &vpconf == &p; };
 
-      addsaverenum(p.model, pp+"used model", mdDisk);
-      if(&p.model == &pmodel) param_custom(pmodel, "projection|Poincare|Klein|half-plane|perspective", menuitem_projection, '1');
+      if(&p.model == &pmodel) {
+        auto par = param_custom_int(pmodel, parameter_names(pp+"used_model", "used model"), menuitem_projection, '1');
+        par->help_text = "projection|Poincare|Klein|half-plane|perspective";
+        }
+      else param_enum(p.model, parameter_names(pp+"used_model", sp+"used model"), mdDisk);
 
       param_matrix(p.mori().v2, pp+"mori", 2)
       -> editable("model orientation", "", 'o');
       param_matrix(p.mori().v3, pp+"mori3", 3)
       -> editable("model orientation 3D", "", 'o');
 
-      param_f(p.top_z, sp+"topz", 5)
+      param_f(p.top_z, sp+"topz", 3)
       -> editable(1, 20, .25, "maximum z coordinate to show", "maximum z coordinate to show", 'l');       
 
-      param_f(p.model_transition, pp+"mtrans", sp+"model transition", 1)
+      param_f(p.model_transition, parameter_names(pp+"mtrans", sp+"model transition"), 1)
       -> editable(0, 1, .1, "model transition", 
           "You can change this parameter for a transition from another model to this one.", 't');          
       
       param_f(p.rotational_nil, sp+"rotnil", 1);
   
-      param_f(p.clip_min, pp+"clipmin", sp+"clip-min", rug ? -100 : -1);
-      param_f(p.clip_max, pp+"clipmax", sp+"clip-max", rug ? +10 : +1);
+      param_f(p.clip_min, parameter_names(pp+"clipmin", sp+"clip-min"), rug ? -100 : -1);
+      param_f(p.clip_max, parameter_names(pp+"clipmax", sp+"clip-max"), rug ? +10 : +1);
   
-      param_f(p.euclid_to_sphere, pp+"ets", sp+"euclid to sphere projection", 1.5)
+      param_f(p.euclid_to_sphere, parameter_names(pp+"ets", sp+"euclid to sphere projection"), 1.5)
       -> editable(1e-1, 10, .1, "ETS parameter", "Stereographic projection to a sphere. Choose the radius of the sphere.", 'l')
       -> set_sets(dialog::scaleLog);
 
-      param_f(p.twopoint_param, pp+"twopoint", sp+"twopoint parameter", 1)
+      param_f(p.twopoint_param, parameter_names(pp+"twopoint", sp+"twopoint parameter"), 1)
       -> editable(1e-3, 10, .1, "two-point parameter", "In two-point-based models, this parameter gives the distance from each of the two points to the center.", 'b')
       -> set_sets(dialog::scaleLog);
 
-      param_f(p.axial_angle, pp+"axial", sp+"axial angle", 90)
+      param_f(p.axial_angle, parameter_names(pp+"axial", sp+"axial angle"), 90)
       -> editable(1e-3, 10, .1, "angle between the axes", "In two-axe-based models, this parameter gives the angle between the two axes.", 'x')
       -> set_sets(dialog::scaleLog);
 
-      param_f(p.fisheye_param, pp+"fisheye", sp+"fisheye parameter", 1)
+      param_f(p.fisheye_param, parameter_names(pp+"fisheye", sp+"fisheye parameter"), 1)
       -> editable(1e-3, 10, .1, "fisheye parameter", "Size of the fish eye.", 'b')
       -> set_sets(dialog::scaleLog);
+
+      param_f(p.fisheye_alpha, parameter_names(pp+"fishalpha", sp+"off-center parameter"), 0)
+      -> editable(1e-1, 10, .1, "off-center parameter",
+        "This projection is obtained by composing gnomonic projection and inverse stereographic projection. "
+        "This parameter changes the center of the first projection (0 = gnomonic, 1 = stereographic). Use a value closer to 1 "
+        "to make the projection more conformal.",
+        'o');
 
       param_f(p.stretch, pp+"stretch", 1)
       -> editable(0, 10, .1, "vertical stretch", "Vertical stretch factor.", 's')
@@ -997,9 +1013,9 @@ EX namespace models {
       param_f(p.product_z_scale, pp+"zstretch")
       -> editable(0.1, 10, 0.1, "product Z stretch", "", 'Z');
   
-      param_f(p.collignon_parameter, pp+"collignon", sp+"collignon-parameter", 1)
+      param_f(p.collignon_parameter, parameter_names(pp+"collignon", sp+"collignon-parameter"), 1)
       -> editable(-1, 1, .1, "Collignon parameter", "", 'b')
-      -> modif([] (float_setting* f) {
+      -> modif([] (float_parameter* f) {
         f->unit = vpconf.collignon_reflected ? " (r)" : "";
         })
       -> set_extra([&p] { 
@@ -1013,6 +1029,12 @@ EX namespace models {
           "The Aitoff projection is obtained by multiplying the longitude by 1/2, using azimuthal equidistant projection, and then dividing X by 1/2. "
           "Hammer projection is similar but equi-area projection is used instead. "
           "Here you can change this parameter.", 'b');
+      param_f(p.offside, sp+"offside")
+      -> editable(0, TAU, TAU/10, "offside parameter",
+          "Do not center the projection on the player -- move the center offside. Useful in polar, where the value equal to offside2 can be used to center the projection on the player.", 'o');
+      param_f(p.offside2, sp+"offside2")
+      -> editable(0, TAU, TAU/10, "offside parameter II",
+          "In polar projection, what distance to display in the center. Use asinh(1) (in hyperbolic) to make it conformal in the center, and pi to have the projection extend the same distance to the left, right, and upwards.", 'O');
       param_f(p.miller_parameter, sp+"miller");
       param_f(p.loximuthal_parameter, sp+"loximuthal")
       -> editable(-90._deg, 90._deg, .1, "loximuthal parameter",
@@ -1030,15 +1052,19 @@ EX namespace models {
       param_b(p.show_hyperboloid_flat, sp+"hyperboloid-flat", true)
       -> editable("show flat", 'b');
   
+      param_b(p.small_hyperboloid, sp+"hyperboloid-small", false)
+      -> editable("halve distances", 'h')
+      -> help("This option halves the distances of every point from the center. Useful in the Minkowski hyperboloid model, to get a visualization of an alternative hyperboloid model based on Clifford algebras.");
+
       param_f(p.skiprope, sp+"mobius", 0)
       -> editable(0, 360, 15, "Möbius transformations", "", 'S')->unit = "°";
 
       param_b(p.dualfocus_autoscale, sp+"dualfocus_autoscale", 0)
       -> editable("autoscale dual focus", 'A');
       
-      addsaver(p.formula, sp+"formula");
-      addsaverenum(p.basic_model, sp+"basic model");
-      addsaver(p.use_atan, sp+"use_atan");  
+      param_str(p.formula, sp+"formula");
+      param_enum(p.basic_model, sp+"basic model");
+      param_b(p.use_atan, sp+"use_atan");
   
       param_f(p.spiral_angle, sp+"sang")
       -> editable(0, 360, 15, "spiral angle", "set to 90° for the ring projection", 'x')
@@ -1054,11 +1080,14 @@ EX namespace models {
 
       param_i(p.back_and_front, sp+"backandfront", 0);
 
-      auto projsaver = addsaver(p.alpha, sp+"projection", 1);
       if(&p.model == &pmodel) {
-        auto proj = param_custom(p.alpha, sp+"projection", menuitem_projection_distance, 'p');
+        p.alpha = 1;
+        auto proj = param_custom_ld(p.alpha, sp+"projection", menuitem_projection_distance, 'p');
         proj->help_text = "projection distance|Gans Klein Poincare orthographic stereographic";
-        proj->saver = projsaver;
+        proj->reaction = [] { update_linked(vid.tc_alpha); };
+        }
+      else {
+        param_f(p.alpha, sp+"projection", 1)->editable(0, 1000, 1, "rug projection", "", 'p');
         }
 
       param_matrix(p.cam(), pp+"cameraangle", 3)
@@ -1085,16 +1114,16 @@ EX namespace models {
         "(2) in hyperbolic geometry, with spiral angle being +90° or -90°\n"
         "(3) in hyperbolic geometry, with other spiral angles (1 makes the bands fit exactly)";
       
-      param_f(p.sphere_spiral_multiplier, "sphere_spiral_multiplier")
+      param_f(p.sphere_spiral_multiplier, pp+"sphere_spiral_multiplier")
       -> editable(0, 10, .1, "sphere spiral multiplier", help, 'M')->unit = "°";
 
-      param_f(p.right_spiral_multiplier, "right_spiral_multiplier")
+      param_f(p.right_spiral_multiplier, pp+"right_spiral_multiplier")
       -> editable(0, 10, .1, "right spiral multiplier", help, 'M')->unit = "°";
 
-      param_f(p.any_spiral_multiplier, "any_spiral_multiplier")
+      param_f(p.any_spiral_multiplier, pp+"any_spiral_multiplier")
       -> editable(0, 10, .1, "any spiral multiplier", help, 'M')->unit = "°";
 
-      param_f(p.spiral_cone, "spiral_cone")
+      param_f(p.spiral_cone, pp+"spiral_cone")
       -> editable(0, 360, -45, "spiral cone", "", 'C')->unit = "°";
       };
     

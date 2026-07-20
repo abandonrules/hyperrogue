@@ -384,7 +384,7 @@ bool last_mkey = false;
 extern int mousepx, mousepy;
 
 void game_frame() {  
-  const Uint8 *keystate = SDL12_GetKeyState(NULL);
+  const sdl_keystate_type *keystate = SDL12_GetKeyState(NULL);
   if(keystate['3'])
     current_room->place_block_full(mousepx / block_x, mousepy / block_y, 0);
   if(keystate['1'])
@@ -827,7 +827,7 @@ auto chk = arg::add3("-platformer", enable)
           slide_url(mode, 'y', "non-Euclidean platformer (YouTube)", "https://www.youtube.com/watch?v=eb2DhCcGH7U");
           slide_url(mode, 't', "non-Euclidean platformer (Twitter)", "https://twitter.com/ZenoRogue/status/1467233150380089345");
           slide_url(mode, 'g', "how to edit this", "https://github.com/zenorogue/hyperrogue/blob/master/rogueviz/platformer.cpp");
-          setCanvas(mode, '0');
+          setPlainCanvas(mode);
           using namespace tour;
           if(mode == pmStart) {
             mapstream::loadMap("platformer.lev");

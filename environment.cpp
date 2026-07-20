@@ -240,6 +240,7 @@ EX void computePathdist(eMonster param, bool include_allies IS(true)) {
       cell *c2 = cw1.peek();
       
       flagtype f = P_MONSTER;
+      if(param == moIvyRoot) f |= P_IVY;
       if(param == moTameBomberbird) f |= P_FLYING | P_ISFRIEND;
       if(isPrincess(param)) f |= P_ISFRIEND | P_USEBOAT | P_CHAIN;
       if(param == moGolem) f |= P_ISFRIEND;
@@ -251,7 +252,7 @@ EX void computePathdist(eMonster param, bool include_allies IS(true)) {
         
         if(qb >= qtarg) {
           if(param == moTortoise && nogoSlow(c, c2)) continue;
-          if(param == moIvyRoot  && strictlyAgainstGravity(c, c2, false, MF_IVY)) continue;
+          if(param == moIvyRoot  && !ivy_passable(c, c2)) continue;
           if(param == moWorm && (cellUnstable(c) || cellEdgeUnstable(c) || prairie::no_worms(c))) continue;
           if(!isFriendly(param) && items[itOrbLava] && c2->cpdist <= 5 && pseudohept(c) && makeflame(c2, 1, true))
             continue;
@@ -304,8 +305,6 @@ EX vector<int> bfs_reachedfrom;
 /** calculate cpdist, 'have' flags, and do general fixings */
 EX void bfs() {
 
-  calcTidalPhase(); 
-    
   yendor::onpath();
   
   int dcs = isize(dcal);
@@ -330,12 +329,9 @@ EX void bfs() {
   
   dcal.clear(); bfs_reachedfrom.clear();
 
-  recalcTide = false;
-  
   for(cell *c: player_positions()) {
     if(c->cpdist == 0) continue;
     c->cpdist = 0;
-    checkTide(c);
     dcal.push_back(c);
     bfs_reachedfrom.push_back(hrand(c->type));
     if(!invismove) targets.push_back(c);
@@ -373,7 +369,7 @@ EX void bfs() {
         c2->wall = waSea;
       
       if(c2 && signed(c2->cpdist) > d+1) {
-        if(WDIM == 3 && !gmatrix.count(c2)) {
+        if(WDIM == 3 && (d > 2 && !gmatrix.count(c2))) {
           if(!first7) first7 = qb;
           continue;
           }
@@ -381,7 +377,7 @@ EX void bfs() {
         
         // remove treasures
         if(!peace::on && c2->item && c2->cpdist == distlimit && itemclass(c2->item) == IC_TREASURE &&
-          c2->item != itBabyTortoise && WDIM != 3 &&
+          !among(c2->item, itBrownian, itBabyTortoise) && WDIM != 3 &&
           (items[c2->item] >= (ls::any_chaos()?10:20) + currentLocalTreasure || getGhostcount() >= 2)) {
             c2->item = itNone;
             if(c2->land == laMinefield) { c2->landparam &= ~3; }
@@ -436,8 +432,6 @@ EX void bfs() {
         dcal.push_back(c2);
         bfs_reachedfrom.push_back(c->c.spin(i));
         
-        checkTide(c2);
-                
         if(c2->wall == waBigStatue && c2->land != laTemple) 
           statuecount++;
         
@@ -548,11 +542,6 @@ EX void bfs() {
       if(c2->wall == waThumperOn) {
         targets.push_back(c2);
         }
-
-  while(recalcTide) {
-    recalcTide = false;
-    for(int i=0; i<isize(dcal); i++) checkTide(dcal[i]);
-    }    
   
   for(auto& t: tempmonsters) t.first->monst = t.second;
   
@@ -831,16 +820,25 @@ EX void findWormIvy(cell *c) {
     else break;
     }
   }
-  
+
+EX void advance_tides() {
+  calcTidalPhase();
+  recalcTide = true;
+  while(recalcTide) {
+    recalcTide = false;
+    for(int i=0; i<isize(dcal); i++) checkTide(dcal[i]);
+    }
+  }
+
 EX void monstersTurn() {
   reset_spill();
   checkSwitch();
   mirror::breakAll();
-  DEBB(DF_TURN, ("bfs"));
+  DEBB(debug_turn, ("bfs"));
   bfs();
-  DEBB(DF_TURN, ("charge"));
+  DEBB(debug_turn, ("charge"));
   if(elec::havecharge) elec::act();
-  DEBB(DF_TURN, ("mmo"));
+  DEBB(debug_turn, ("mmo"));
   int phase2 = (1 & items[itOrbSpeed]);
   if(!phase2) movemonsters();
 
@@ -861,14 +859,16 @@ EX void monstersTurn() {
       refreshFriend(dcal[i]);
       }
     }
-  DEBB(DF_TURN, ("rop"));
+  DEBB(debug_turn, ("rop"));
   if(!dual::state) reduceOrbPowers();
   int phase1 = (1 & items[itOrbSpeed]);
   if(dual::state && items[itOrbSpeed]) phase1 = !phase1;
-  DEBB(DF_TURN, ("lc"));
+  DEBB(debug_turn, ("lc"));
   if(!phase1) livecaves();
   if(!phase1) ca::simulate();
   if(!phase1) heat::processfires();
+  // this depends on turncount, so we do it always
+  advance_tides();
   
   for(cell *c: crush_now) {
     changes.ccell(c);
@@ -886,7 +886,7 @@ EX void monstersTurn() {
   crush_now = std::move(crush_next);
   crush_next.clear();
   
-  DEBB(DF_TURN, ("heat"));
+  DEBB(debug_turn, ("heat"));
   heat::processheat();
   // if(elec::havecharge) elec::drawcharges();
 
@@ -900,8 +900,8 @@ EX void monstersTurn() {
     for(cell *pc: player_positions())
       checkFreedom(pc);
 
-  DEBB(DF_TURN, ("check"));
-  checkmove();
+  DEBB(debug_turn, ("check"));
+  checkmove(false);
   if(canmove) elec::checklightningfast();
 
 

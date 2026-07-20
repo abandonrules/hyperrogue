@@ -548,8 +548,6 @@ void geometry_information::make_revolution_cut(hpcshape &sh, int each, ld push, 
   
   auto gbody = body;
   
-  int it = 0;
-  
   vector<int> nextid(n);
   vector<int> lastid(n);
   vector<bool> stillin(n, true);
@@ -558,7 +556,6 @@ void geometry_information::make_revolution_cut(hpcshape &sh, int each, ld push, 
   nextid[n-1] = n-1; lastid[0] = 0;
 
   while(true) {
-    it++;
     int cand = -1;
     ld cv = 0;
     for(int i=1; i<n-1; i++) if(stillin[i]) {
@@ -787,8 +784,6 @@ void geometry_information::adjust_eye(hpcshape& eye, hpcshape head, ld shift_eye
   hyperpoint pscenter = psmin(center);
   
   ld pos = 0;
-  int qty = 0, qtyall = 0;
-  
   vector<hyperpoint> pss;
   
   for(int i=head.s; i<head.e; i++) pss.push_back(psmin(lzpush(shift_head - cgi.emb->center_z()) * hpc[i]));
@@ -800,8 +795,7 @@ void geometry_information::adjust_eye(hpcshape& eye, hpcshape head, ld shift_eye
   ld mindist = 1e9;
   for(int i=0; i<isize(pss); i+=3) if(pss[i][2] < zmid || (WDIM == 3 && !gproduct)) {
     ld d = sqhypot_d(2, pss[i]-pscenter) + sqhypot_d(2, pss[i+1]-pscenter) + sqhypot_d(2, pss[i+2]-pscenter);
-    if(d < mindist) mindist = d, pos = min(min(pss[i][2], pss[i+1][2]), pss[i+2][2]), qty++;
-    qtyall++;
+    if(d < mindist) mindist = d, pos = min(min(pss[i][2], pss[i+1][2]), pss[i+2][2]);
     }
   
   if(&eye == &shSkullEyes) cgi.eyelevel_human = pos = zc(eyepos) - 0.06 * SH * 0.05;
@@ -879,7 +873,7 @@ void geometry_information::make_shadow(hpcshape& sh) {
 void geometry_information::make_3d_models() {
   if(GDIM == 2 || noGUI) return;
   eyepos = WDIM == 2 ? 0.875 : 0.925;
-  DEBBI(DF_POLY, ("make_3d_models"));
+  DEBBI(debug_poly, ("make_3d_models"));
   shcenter = tile_center();
 
 #if CAP_GL  
@@ -891,19 +885,19 @@ void geometry_information::make_3d_models() {
 #endif
   
   if(WDIM == 2 || euclid) {
-    DEBB(DF_POLY, ("shadows"));
+    DEBB(debug_poly, ("shadows"));
     for(hpcshape* sh: {&shBatWings, &shBugBody, &shBullBody, &shButterflyWing, &shCatBody, &shDogBody, &shDogTorso,
       &shEagle, &shFemaleBody, &shFlailMissile, &shGadflyWing, &shGargoyleWings, &shHawk, &shJiangShi, &shKnife,
       &shPBody, &shPHead, &shRaiderBody, &shReptileBody, &shSkeletonBody, &shTongue, &shTrapArrow, &shTrylobite,
       &shWaterElemental, &shWolfBody, &shYeti, &shWormHead, &shWormHead, &shDragonHead, &shDragonSegment, &shDragonTail,
-      &shTentacleX, &shTentHead, &shILeaf[0], &shILeaf[1], &shWormSegment, &shSmallWormSegment,
+      &shTentHead, &shILeaf[0], &shILeaf[1], &shWormSegment, &shSmallWormSegment, &shBunnyBody, &shSpaceship,
       &shWormTail, &shSmallWormTail, &shFrogBody })
       make_shadow(*sh);
     
     for(int i=0; i<8; i++) make_shadow(shAsteroid[i]);
     }
   
-  DEBB(DF_POLY, ("humanoids"));
+  DEBB(debug_poly, ("humanoids"));
   make_humanoid_3d(shPBody);
   make_humanoid_3d(shYeti);
   make_humanoid_3d(shFemaleBody);
@@ -918,7 +912,7 @@ void geometry_information::make_3d_models() {
   // shRaiderBody = shPBody;
   // shJiangShi = shPBody;
 
-  DEBB(DF_POLY, ("heads"));
+  DEBB(debug_poly, ("heads"));
   make_head_3d(shFemaleHair);
   make_head_3d(shPHead);
   make_head_3d(shTurban1);
@@ -942,7 +936,7 @@ void geometry_information::make_3d_models() {
   make_head_3d(shJiangShiCap2);
   make_head_3d(shTerraHead);
   
-  DEBB(DF_POLY, ("armors"));
+  DEBB(debug_poly, ("armors"));
   make_armor_3d(shKnightArmor);
   make_armor_3d(shKnightCloak, 2);
   make_armor_3d(shPrinceDress);
@@ -961,7 +955,7 @@ void geometry_information::make_3d_models() {
   
   make_armor_3d(shHood, 2);
   
-  DEBB(DF_POLY, ("feet and paws"));
+  DEBB(debug_poly, ("feet and paws"));
   make_foot_3d(shHumanFoot);
   make_foot_3d(shYetiFoot);
   make_skeletal(shSkeletalFoot, WDIM == 2 ? zc(0.5) + human_height/40 - FLOOR : 0);
@@ -983,7 +977,7 @@ void geometry_information::make_3d_models() {
   make_paw_3d(shDogFrontPaw, shDogFrontLeg);
   make_paw_3d(shDogRearPaw, shDogRearLeg);  
   
-  DEBB(DF_POLY, ("revolution"));
+  DEBB(debug_poly, ("revolution"));
   // make_abody_3d(shWolfBody, 0.01);
   // make_ahead_3d(shWolfHead);
   // make_ahead_3d(shFamiliarHead);
@@ -1004,6 +998,12 @@ void geometry_information::make_3d_models() {
   // make_ahead_3d(shCatHead);
   make_revolution_cut(shCatBody, 30, +g);
   make_revolution_cut(shCatHead, 180, AHEAD - ABODY +g, 0.055 * scalefactor);
+
+  make_revolution_cut(shSpaceshipBase, 180, 0);
+
+  make_revolution_cut(shBunnyBody, 30, +g);
+  make_revolution_cut(shBunnyHead, 180, AHEAD - ABODY +g, 0.055 * scalefactor);
+  make_revolution_cut(shBunnyTail, 30, +g);
 
   make_paw_3d(shReptileFrontFoot, shReptileFrontLeg);
   make_paw_3d(shReptileRearFoot, shReptileRearLeg);  
@@ -1070,7 +1070,7 @@ void geometry_information::make_3d_models() {
   make_revolution_cut(shButterflyWing, 180, 0, 0.05*S);
   finishshape();
   
-  DEBB(DF_POLY, ("animatebirds"));
+  DEBB(debug_poly, ("animatebirds"));
   animate_bird(shEagle, shAnimatedEagle, 0.05*S);
   animate_bird(shTinyBird, shAnimatedTinyEagle, 0.05*S/2);
 
@@ -1082,7 +1082,7 @@ void geometry_information::make_3d_models() {
   animate_bird(shBatWings, shAnimatedBat, 0.05*S);
   animate_bird(shBatBody, shAnimatedBat2, 0.05*S);
 
-  DEBB(DF_POLY, ("disablers"));
+  DEBB(debug_poly, ("disablers"));
 
   disable(shWolfRearLeg);
   disable(shWolfFrontLeg);
@@ -1117,7 +1117,7 @@ void geometry_information::make_3d_models() {
 
   make_head_only();
   
-  DEBB(DF_POLY, ("balls"));
+  DEBB(debug_poly, ("balls"));
   make_ball(shDisk, orbsize*.2, 2);
   make_ball(shHeptaMarker, zhexf*.2, 1);
   make_ball(shSnowball, zhexf*.1, 1);
@@ -1135,7 +1135,7 @@ void geometry_information::make_3d_models() {
     }
 
   shift_shape(shBoatOuter, FLOOR);
-  shift_shape(shBoatInner, (FLOOR+LAKE)/2);
+  shift_shape(shBoatInner, (FLOOR+WATERLEVEL)/2);
   
   for(int i=0; i<14; i++)
     shift_shape(shTriheptaSpecial[i], FLOOR);
@@ -1167,7 +1167,7 @@ void geometry_information::make_3d_models() {
   clone_shape(shRose, shRoseItem);
   shift_shape(shRose, FLOOR - human_height * 1/20);
 
-  DEBB(DF_POLY, ("slime"));
+  DEBB(debug_poly, ("slime"));
   bshape(shSlime, PPR::MONSTER_BODY);
   hyperpoint tip = xtangent(1);
   hyperpoint atip = xtangent(-1);
@@ -1191,7 +1191,7 @@ void geometry_information::make_3d_models() {
   shift_shape(shMagicSword, ABODY);
   shift_shape(shMagicShovel, ABODY);
   
-  DEBB(DF_POLY, ("eyes"));
+  DEBB(debug_poly, ("eyes"));
   adjust_eye(shSlimeEyes, shSlime, FLATEYE, 0, 2, 2);
   adjust_eye(shGhostEyes, shGhost, GHOST, GHOST, 2, WDIM == 2 ? 2 : 4);
   adjust_eye(shMiniEyes, shMiniGhost, GHOST, GHOST, 2, 2);

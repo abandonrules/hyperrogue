@@ -101,8 +101,11 @@ EX hookset<void(eLand&)> hooks_sync_music;
 
 EX bool music_out_of_focus = false;
 
+EX debugflag debug_music = {"music"};
+EX debugflag debug_music_error = {"music_error"};
+
 EX void handlemusic() {
-  DEBBI(DF_GRAPH, ("handle music"));
+  indenter_finish hm(debug_music, "handlemusic");
   if(audio && musicvolume) {
     eLand id = getCurrentLandForMusic();
     if(callhandlers(false, hooks_music, id)) return;
@@ -120,7 +123,7 @@ EX void handlemusic() {
       if(!music[id]) {
         memory_for_lib();
         music[id] = Mix_LoadMUS(musfname[id].c_str());
-        if(!music[id]) {
+        if(!music[id] && debug_music_error) {
            printf("Mix_LoadMUS: %s\n", Mix_GetError());
            }
         }
@@ -155,8 +158,14 @@ EX void resetmusic() {
     }
   }
 
+#if HDR
+constexpr eLand mfcode(const char* buf) { return eLand((buf[0] - '0') * 10 + buf[1] - '0'); }
+#endif
+
+EX debugflag debug_init_music = {"init_music", true};
+
 EX bool loadMusicInfo(string dir) {
-  DEBBI(DF_INIT, ("load music info"));
+  indenter_finish hm(debug_init_music, "loadMusicInfo");
   if(dir == "") return false;
   FILE *f = fopen(dir.c_str(), "rt");
   if(f) {
@@ -174,7 +183,7 @@ EX bool loadMusicInfo(string dir) {
           else musfname[id] = buf+5;
           music_available = true;
           }
-        else {
+        else if(debug_music_error) {
           fprintf(stderr, "warning: bad soundtrack id, use the following format:\n");
           fprintf(stderr, "[##] */filename\n");
           fprintf(stderr, "where ## are two digits, and */ is optional and replaced by path to the music\n");
@@ -197,16 +206,10 @@ EX bool loadMusicInfo(string dir) {
 
 EX bool loadMusicInfo() {
   return
-    loadMusicInfo(musicfile)
-    || loadMusicInfo(HYPERPATH "hyperrogue-music.txt") 
-    || loadMusicInfo("./hyperrogue-music.txt") 
-    || loadMusicInfo("music/hyperrogue-music.txt")
-// Destination set by ./configure (in the GitHub repository)
-#ifdef MUSICDESTDIR
-    || loadMusicInfo(MUSICDESTDIR)
-#endif
+    (musicfile[0] && loadMusicInfo(find_file(musicfile)))
+    || loadMusicInfo(find_file("hyperrogue-music.txt") )
+    || loadMusicInfo(find_file("music/hyperrogue-music.txt") )
 #ifdef FHS
-    || loadMusicInfo("/usr/share/hyperrogue/hyperrogue-music.txt") 
     || (getenv("HOME") && loadMusicInfo(s0 + getenv("HOME") + "/.hyperrogue-music.txt"))
 #endif
     ;
@@ -216,7 +219,7 @@ EX void initAudio() {
   audio = loadMusicInfo();
 
   if(audio) {
-    if(Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 2048) != 0) {
+    if(SDL23(Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 2048) != 0, !Mix_OpenAudio(0, nullptr))) {
       fprintf(stderr, "Unable to initialize audio: %s\n", Mix_GetError());
       audio = false;
       }
@@ -229,13 +232,9 @@ EX void initAudio() {
 
 map<string, Mix_Chunk*> chunks;
 
-#ifdef SOUNDDESTDIR
-string wheresounds = SOUNDDESTDIR;
-#else
-string wheresounds = HYPERPATH "sounds/";
-#endif
-
 hookset<bool(const string& s, int vol)> hooks_sound;
+
+EX string wheresounds = "sounds/";
 
 EX void playSound(cell *c, const string& fname, int vol) {
   LATE( hr::playSound(c, fname, vol); )
@@ -243,7 +242,7 @@ EX void playSound(cell *c, const string& fname, int vol) {
   if(callhandlers(false, hooks_sound, fname, vol)) return;
   // printf("Play sound: %s\n", fname.c_str());
   if(!chunks.count(fname)) {
-    string s = wheresounds+fname+".ogg";
+    string s = find_file(wheresounds + fname + ".ogg");
     if(memory_issues()) return;
     memory_for_lib();
     chunks[fname] = Mix_LoadWAV(s.c_str());

@@ -18,10 +18,14 @@ vector<char> tomove;
 bool smartmove = false;
 bool dorestart = false;
 
+/* penalty, to improve control. 0 = no penalty */
+ld penalty = 0;
+
 int lastmoves;
 
 int movearound() {
   indenter_finish im("movearound");
+  int N = get_n();
   int total = 0;
   if(smartmove) for(bool b: tomove) if(b) total++;
   if(total == 0) {
@@ -58,7 +62,10 @@ int movearound() {
       llo2[d] = loglik_chosen();
       if(lc_type == 'C')
         add_to_set(mc2[d], -1, 0);
-      if(llo2[d] > bestllo) bestd = d, bestllo = llo2[d];
+      ld with_penalty = llo2[d];
+      if(penalty) with_penalty += cgi.expansion->get_descendants(mc->lev).log_approx() * penalty;
+      if(penalty) with_penalty -= cgi.expansion->get_descendants(mc2[d]->lev).log_approx() * penalty;
+      if(with_penalty > bestllo) bestd = d, bestllo = with_penalty;
       
       add_to_tally(mc2[d], -1, 0);
       tallyedgesof(i, -1, mc2[d]);
@@ -80,15 +87,19 @@ int movearound() {
     }}
   // dispnewmoves();
   println(hlog, " moves = ", moves);
+  if(penalty) println(hlog, "penalty = ", penalty);
   return lastmoves = moves;
   }
 
 int move_restart() {
   indenter_finish im("move_restart");
   ld llo = loglik_chosen();
-  array<array<int, 128>, 2> distances_map = {0};
+  array<array<int, 128>, 2> distances_map;
+  for(int a=0; a<2; a++) for(int b=0; b<128; b++) distances_map[a][b] = 0;
   int moves = 0;
 //  int im = 0;
+
+  int N = get_n();
   
   {progressbar pb(N, "move_restart");
   for(int i=0; i<N; i++) {
@@ -157,13 +168,14 @@ void verifycs() {
     edgecs += edgetally[u] * u*u,
     totalcs += tally[u] * u*u;
   
-  print(hlog, "edgecs=", hr::format("%lld", edgecs), " totalcs=", hr::format("%lld", totalcs));
+  println(hlog, "edgecs=", hr::format("%lld", edgecs), " totalcs=", hr::format("%lld", totalcs));
   }
 
 void preparegraph() {
   indenter_finish im("preparegraph");
   using namespace rogueviz;
   M = 0;
+  int N = get_n();
   vertices.resize(N);
 
   if(1) {
@@ -177,8 +189,6 @@ void preparegraph() {
 
   memoryInfo();
   
-  cont_logistic.setRT(graph_R, graph_T);
-
   counttallies();
   
   memoryInfo();
@@ -188,10 +198,10 @@ void preparegraph() {
   if(1) {
     indenter_finish im("optimizing parameters"); 
     ld factor = 1/log(cgi.expansion->get_growth());
-    current_logistic.setRT(factor * graph_R, factor * graph_T);
+    current_logistic.setRT(factor * rogueviz::embeddings::cont_logistic.R, factor * rogueviz::embeddings::cont_logistic.T);
     saved_logistic = current_logistic; 
 
-    // for(int u=0; u<MAXDIST; u++) iprintf("%d/%Ld\n", edgetally[u], tally[u]);
+    // for(int u=0; u<MAXDIST; u++) iprintf("%d/%lld\n", edgetally[u], tally[u]);
 
     fix_logistic_parameters(current_logistic, loglik_logistic, "logistic", 1e-6);
     writestats();
@@ -208,17 +218,39 @@ void preparegraph() {
   println(hlog, "Using distlimit = ", distlimit);
   }
 
-void read_graph_full(const string& fname) {
+struct dhrg_embedding : public rogueviz::embeddings::tiled_embedding {
+
+  pair<cell*, hyperpoint> as_location(int id) override {
+    return { vertices[id]->ascell(), C0 };
+    }
+
+  ld distance(int i, int j) override {
+    return quickdist(vertices[i], vertices[j]);
+    }
+
+  ld zero_distance(int i) override {
+    return vertices[i]->lev;
+    }
+
+  void save(fhstream& f) override {
+    int N = get_n();
+    for(int i=0; i<N; i++) {
+      string p = get_path(vertices[i]);
+      if(p == "") p = "X";
+      println(f, rogueviz::vdata[i].name.c_str(), " ", p.c_str());
+      }
+    }
+
+  virtual string name() override { return "DHRG"; }
+  };
+
+void graph_from_rv() {
   using namespace rogueviz;
   
   memoryInfo();
 
   if(true) {
-    indenter_finish im("Read graph");
-  
-    // N = isize(vdata);
-  
-    read_graph(fname, false, false, false);
+    int N = get_n();
     vertices.resize(N);
     progressbar pb(N, "Translating to cells");
 
@@ -228,39 +260,20 @@ void read_graph_full(const string& fname) {
       hyperpoint T0 = vdata[i].m->at * C0;
       virtualRebase2(vdata[i].m->base, T0, true); 
       vertices[i] = find_mycell(vdata[i].m->base);
-#else
-      vertices[i] = find_mycell_by_path(computePath(vdata[i].m->at));
-#endif
       vdata[i].m->at = Id;
+#else
+      hyperpoint T0 = rogueviz::embeddings::current->as_hyperpoint(i);
+      vertices[i] = find_mycell_by_path(computePath(T0));
+#endif
       pb++;
-      // printf("%s\n", computePath(vdata[i].m->base).c_str());
+      // printf("%s %s\n", vdata[i].name.c_str(), computePath(vdata[i].m->base).c_str());
       }    
     }
 
   recycle_compute_map();
-  preparegraph();  
-  }
-
-void graph_from_rv() {
-  using namespace rogueviz;
-  
-  memoryInfo();
-  
-  vertices.resize(N);
-  progressbar pb(N, "converting RogueViz to DHRG");
-
-  for(int i=0; i<N; i++) {
-#if BUILD_ON_HR    
-    vertices[i] = find_mycell(vdata[i].m->base);
-#else
-    auto path1 = computePath(vdata[i].m->base);
-    vertices[i] = find_mycell_by_path(path1);
-#endif
-    vdata[i].m->at = Id;
-    pb++;
-    }    
-
   preparegraph();
+
+  rogueviz::embeddings::enable_embedding(std::make_shared<dhrg_embedding>());
   }
 
 bool iteration() {
@@ -290,51 +303,32 @@ void embedder_loop(int max) {
     }
   }
 
-void save_embedding(const string s) {
-  FILE *f = fopen(s.c_str(), "wt");
-  for(int i=0; i<N; i++) {
-    string p = get_path(vertices[i]);
-    if(p == "") p = "X";
-    fprintf(f, "%s %s\n", rogueviz::vdata[i].name.c_str(), p.c_str());
-    }
-  fclose(f);
-  }
+void load_embedded(const string& s) {
 
-void load_embedded(const string s) {
-  if(true) {
-    read_graph(s, false, false, false);
-    indenter_finish im("Read graph");
-    }
+  if(s == "-") return graph_from_rv();
 
-  string t = rogueviz::fname + "-dhrg.txt";
-      
   if(true) {
+    int N = get_n();
     progressbar pb(N, "reading embedding");
     vertices.resize(N, NULL);
     
-    map<string, int> ids;
-    for(int i=0; i<N; i++) ids[rogueviz::vdata[i].name] = i;
-
-    FILE *f = fopen(t.c_str(), "rt");
+    fhstream f(s, "rt");
     while(true) {
-      char who[500], where[500];
-      who[0] = 0;
-      fscanf(f, "%s%s", who, where);
-      if(who[0] == 0) break;
-      if(!ids.count(who)) printf("unknown vertex: %s\n", who);
-      string wh = where;
-      if(wh == "X") wh = "";
-      vertices[ids[who]] = find_mycell_by_path(wh);
+      string who = scan<string>(f);
+      if(who == "") break;
+      string where = scan<string>(f);
+      if(where == "X") where = "";
+      vertices[rogueviz::labeler.at(who)] = find_mycell_by_path(where);
       pb++;
       }
-    fclose(f);
     
     for(int i=0; i<N; i++) if(vertices[i] == NULL) {
       printf("unmapped: %s\n", rogueviz::vdata[i].name.c_str());
-      exit(1);
+      throw hr_exception("unmapped vertex");
       }
     }
   preparegraph();
+  rogueviz::embeddings::enable_embedding(std::make_shared<dhrg_embedding>());
   }
 
 }

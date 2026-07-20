@@ -1,3 +1,6 @@
+// Nil Rider statues
+// Copyright (C) 2022-2025 Zeno Rogue, see '../../hyper.cpp' for details
+
 namespace hr {
 namespace bricks {
 
@@ -6,6 +9,7 @@ namespace bricks {
   extern void build(bool in_pair);
 
   #if !NILRIDER
+  #ifndef BRICK
   struct brick {
     euc::coord co;
     color_t col;
@@ -13,6 +17,7 @@ namespace bricks {
     hyperpoint location;
     hpcshape shRotWall[6];
     };
+  #endif
   #endif
   
   extern vector<brick> bricks;
@@ -71,8 +76,8 @@ void create_castle() {
     tex.twidth = 16;
     tex.theight = 16;
     tex.stretched = false;
-    tex.strx = tex.tx;
-    tex.stry = tex.ty;
+    tex.strx = tex.tx = tex.twidth;
+    tex.stry = tex.ty = tex.theight;
     tex.base_x = 0;
     tex.base_y = 0;
     tex.whitetexture();

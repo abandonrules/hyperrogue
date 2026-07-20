@@ -10,7 +10,9 @@
 #include "hyper.h"
 namespace hr {
 
-#define NUMLEADER 87
+#if HDR
+#define NUMLEADER 90
+#endif
 
 EX bool test_achievements = false;
 
@@ -80,12 +82,30 @@ EX const char* leadernames[NUMLEADER] = {
   "Lazurite Figurines", // 83
   "Water Lilies", // 84
   "Capon Stones", // 85
-  "Crystal Dice" // 86
+  "Crystal Dice", // 86
+  "Crossbow (bull)", // 87
+  "Crossbow (geodesic)", // 88
+  "Crossbow (geometric)", // 89
   };
 
+#if HDR
+#define LB_PRINCESS 36
 #define LB_STATISTICS 62
-#define LB_HALLOWEEN  63
+#define LB_HALLOWEEN 63
+#define LB_YENDOR_CHALLENGE 40
+#define LB_PURE_TACTICS 41
+#define LB_PURE_TACTICS_SHMUP 49
+#define LB_PURE_TACTICS_COOP 50
 #define LB_RACING 81
+#endif
+
+EX string myname();
+
+/** gain the given achievement.
+ * @param s name of the achievement, e.g., DIAMOND1
+ * @param flags one of the constants from namespace rg. The achievement is only awarded if special modes are matched exactly.
+ */
+EX void achievement_gain(const char* s, char flags IS(0));
 
 EX bool haveLeaderboard(int id);
 EX int get_currentscore(int id);
@@ -93,11 +113,13 @@ EX void set_priority_board(int id);
 EX int get_sync_status();
 EX bool score_loaded(int id);
 EX int score_default(int id);
-
+EX void improveItemScores();
 EX void upload_score(int id, int v);
 
-string achievementMessage[3];
-int achievementTimer;
+EX bool is_steamdeck();
+
+EX string achievementMessage[3];
+EX int achievementTimer;
 /** achievements received this game */
 EX vector<string> achievementsReceived;
 
@@ -108,7 +130,7 @@ EX bool wrongMode(char flags) {
   if(cheater) return true;
   if(casual) return true;
   if(flags == rg::global) return false;
-  if(bow::weapon) return true;
+  if(flags == rg::fail) return true;
 
   if(flags != rg::special_geometry && flags != rg::special_geometry_nicewalls) {
     if(!BITRUNCATED) return true;
@@ -116,6 +138,7 @@ EX bool wrongMode(char flags) {
     if(disksize) return true;
     }
   if(ineligible_starting_land && !flags) return true;
+  if(use_custom_land_list) return true;
 
   if(shmup::on != (flags == rg::shmup || flags == rg::racing)) return true;
   if(racing::on != (flags == rg::racing)) return true;
@@ -131,6 +154,7 @@ EX bool wrongMode(char flags) {
   if(tour::on) return true;
 #endif
   eLandStructure dls = lsNiceWalls;
+  if(flags == rg::princess && !princess::challenge) return true;
   if(flags == rg::special_geometry || flags == rg::princess)
     dls = lsSingle;
   if(flags == rg::chaos)
@@ -140,6 +164,7 @@ EX bool wrongMode(char flags) {
     dls = land_structure;
 
   if(land_structure != dls) return true;
+  if(shmup::on && vid.creature_scale != 1) return true;
   if(numplayers() > 1 && !multi::friendly_fire) return true;
   if(numplayers() > 1 && multi::pvp_mode) return true;
   if(numplayers() > 1 && multi::split_screen) return true;
@@ -158,6 +183,31 @@ EX void achievement_gain_once(const string& s, char flags IS(0)) {
     }
   got_achievements.insert(s);
   achievement_gain(s.c_str(), flags);
+  }
+
+namespace rg {
+  char check(bool b, char val = special_geometry) { return b ? val : fail; }
+  }
+
+EX char specgeom_zebra() { return rg::check(geometry == gZebraQuotient && !disksize && BITRUNCATED && firstland == laDesert); }
+EX char specgeom_lovasz() { return rg::check(geometry == gKleinQuartic && variation == eVariation::untruncated && gp::param == gp::loc(1,1) && !disksize && in_lovasz()); }
+EX char specgeom_halloween() { return rg::check((geometry == gSphere || geometry == gElliptic) && BITRUNCATED && !disksize && firstland == laHalloween); }
+EX char specgeom_heptagonal() { return rg::check(PURE && geometry == gNormal && !disksize, rg::special_geometry_nicewalls); }
+EX char specgeom_euclid_gen() { return rg::check(geometry == gEuclid && !disksize && firstland == laMirrorOld); }
+#if CAP_CRYSTAL
+EX char specgeom_crystal1() { return rg::check(PURE && cryst && ginf[gCrystal].sides == 8 && ginf[gCrystal].vertex == 4 && !crystal::used_compass_inside && !disksize && firstland == laCamelot); }
+EX char specgeom_crystal2() { return rg::check(BITRUNCATED && cryst && ginf[gCrystal].sides == 8 && ginf[gCrystal].vertex == 3 && !crystal::used_compass_inside && !disksize && firstland == laCamelot); }
+#endif
+
+EX vector<std::function<char()>> all_specgeom_checks = { specgeom_zebra, specgeom_lovasz, specgeom_halloween, specgeom_heptagonal,
+  #if CAP_CRYSTAL
+  specgeom_crystal1, specgeom_crystal2,
+  #endif
+  specgeom_euclid_gen };
+
+EX char any_specgeom() {
+  for(auto chk: all_specgeom_checks) if(chk() != rg::fail) return chk();
+  return rg::fail;
   }
 
 EX void achievement_log(const char* s, char flags) {
@@ -194,29 +244,21 @@ EX void achievement_log(const char* s, char flags) {
 #endif
   }
 
-EX void achievement_init();
-EX string myname();
-EX void achievement_close();
+#ifndef LEADER
+#define LEADER "Unknown"
+#define LEADERFULL "Unknown"
+#endif
 
-/** gain the given achievement.
- * @param s name of the achievement, e.g., DIAMOND1
- * @param flags one of the constants from namespace rg. The achievement is only awarded if special modes are matched exactly.
- */
-EX void achievement_gain(const char* s, char flags IS(0));
-
-#if ISSTEAM
-void improveItemScores();
-#include "private/hypersteam.cpp"
-#elif !ISANDROID && !ISIOS
-void achievement_init() {}
+#if !CAP_ACHIEVE
 string myname() { return "Rogue"; }
-void achievement_close() {}
 // gain the achievement with the given name.
 // flags: 'e' - for Euclidean, 's' - for Shmup, '7' - for heptagonal
 // Only awarded if special modes are matched exactly.
-void achievement_gain(const char* s, char flags IS(0)) {
+void achievement_gain(const char* s, char flags) {
   achievement_log(s, flags);
   }
+EX int get_sync_status() { return 0; }
+EX void set_priority_board(int) { }
 #endif
 
 // gain the achievement for collecting a number of 'it'.
@@ -230,11 +272,11 @@ EX void achievement_collection2(eItem it, int q) {
   if(randomPatternsMode) return;
   LATE( achievement_collection2(it, q); )
 
-  if(it == itTreat && q == 50 && (geometry == gSphere || geometry == gElliptic) && BITRUNCATED && !disksize)
-    achievement_gain("HALLOWEEN1", rg::special_geometry);
+  if(it == itTreat && q == 50)
+    achievement_gain("HALLOWEEN1", specgeom_halloween());
 
-  if(it == itTreat && q == 100 && (geometry == gSphere || geometry == gElliptic) && BITRUNCATED && !disksize)
-    achievement_gain("HALLOWEEN2", rg::special_geometry);
+  if(it == itTreat && q == 100)
+    achievement_gain("HALLOWEEN2", specgeom_halloween());
 
   if(q == 1) {
     if(it == itDiamond) achievement_gain("DIAMOND1");
@@ -314,13 +356,10 @@ EX void achievement_collection2(eItem it, int q) {
   // 32
   if(it == itHolyGrail) {
     if(q == 1) achievement_gain("GRAIL2");
-    if(PURE && geometry == gNormal && !disksize)
-      achievement_gain("GRAILH", rg::special_geometry_nicewalls);
+    achievement_gain("GRAILH", specgeom_heptagonal());
     #if CAP_CRYSTAL
-    if(PURE && cryst && ginf[gCrystal].sides == 8 && ginf[gCrystal].vertex == 4 && !crystal::used_compass_inside && !disksize)
-      achievement_gain("GRAIL4D", rg::special_geometry);
-    if(BITRUNCATED && cryst && ginf[gCrystal].sides == 8 && ginf[gCrystal].vertex == 3 && !crystal::used_compass_inside && !disksize)
-      achievement_gain("GRAIL4D2", rg::special_geometry);
+    achievement_gain("GRAIL4D", specgeom_crystal1());
+    achievement_gain("GRAIL4D2", specgeom_crystal2());
     #endif
     if(q == 3) achievement_gain("GRAIL3");
     if(q == 8) achievement_gain("GRAIL4");
@@ -604,14 +643,18 @@ EX void achievement_count(const string& s, int current, int prev) {
     achievement_gain("LIGHTNING2");
   if(s == "LIGHTNING" && current-prev >= 10)
     achievement_gain("LIGHTNING3");
-  if(s == "MIRAGE" && current >= 35 && geometry == gEuclid && !disksize)
-    achievement_gain("MIRAGE", rg::special_geometry);
+  if(s == "MIRAGE" && current >= 35)
+    achievement_gain("MIRAGE", specgeom_euclid_gen());
   if(s == "ORB" && current >= 10)
     achievement_gain("ORB3");
   if(s == "BUG" && current >= 1000)
     achievement_gain("BUG3");
   if(s == "ELEC" && current >= 10)
     achievement_gain("ELEC3");
+  if(s == "BOWVARIETY" && current >= 2)
+    achievement_gain("BOWVARIETY1");
+  if(s == "BOWVARIETY" && current >= 6)
+    achievement_gain("BOWVARIETY2");
   }
 
 int specific_improved = 0;
@@ -620,7 +663,7 @@ int specific_what = 0;
 EX void improve_score(int i, eItem what) {
   if(offlineMode) return;
   LATE( improve_score(i, what); )
-#ifdef HAVE_ACHIEVEMENTS
+#if CAP_ACHIEVE
   if(haveLeaderboard(i)) updateHi(what, get_currentscore(i));
   if(items[what] && haveLeaderboard(i)) {
     if(items[what] > get_currentscore(i) && score_loaded(i)) {
@@ -634,10 +677,9 @@ EX void improve_score(int i, eItem what) {
 // scores for special challenges
 EX void achievement_score(int cat, int number) {
   if(offlineMode) return;
-#ifdef HAVE_ACHIEVEMENTS
+#if CAP_ACHIEVE
   if(cheater) return;
   if(casual) return;
-  if(bow::weapon) return;
   LATE( achievement_score(cat, number); )
   if(disksize) return;
   if(cat == LB_HALLOWEEN) {
@@ -656,6 +698,8 @@ EX void achievement_score(int cat, int number) {
   if(tactic::on && cat != LB_PURE_TACTICS && cat != LB_PURE_TACTICS_SHMUP && cat != LB_PURE_TACTICS_COOP) 
     return;
   if(racing::on && cat != LB_RACING) return;
+  if(bow::weapon) return;
+  if(use_custom_land_list) return;
   upload_score(cat, number);
 #endif
   }
@@ -739,14 +783,13 @@ EX void achievement_final(bool really_final) {
 
   LATE( achievement_final(really_final); )
 
-#ifdef HAVE_ACHIEVEMENTS
+#if CAP_ACHIEVE
   if(ticks > next_stat_tick) {
     upload_score(LB_STATISTICS, time(NULL));
     next_stat_tick = ticks + 600000;
     }
   if(cheater) return;
   if(casual) return;
-  if(bow::weapon) return;
 
 #if CAP_TOUR
   if(tour::on) return;
@@ -778,6 +821,10 @@ EX void achievement_final(bool really_final) {
   if(PURE) specialcode+=4;
   if(numplayers() > 1) specialcode+=8;
   if(inv::on) specialcode+=16;
+  if(bow::crossbow_mode() && bow::style == bow::cbBull) specialcode += 32;
+  if(bow::crossbow_mode() && bow::style == bow::cbGeodesic) specialcode += 64;
+  if(bow::crossbow_mode() && bow::style == bow::cbGeometric) specialcode += 96;
+  if(shmup::on && vid.creature_scale != 1) return;
   
   if(sphere && specialland == laHalloween) {
     if(specialcode) return;
@@ -788,6 +835,7 @@ EX void achievement_final(bool really_final) {
   if(ineligible_starting_land) return;
   if(geometry) return;
   if(NONSTDVAR) return;
+  if(use_custom_land_list) return;
 
   if(numplayers() > 1 && !multi::friendly_fire) return;
   if(numplayers() > 1 && multi::pvp_mode) return;
@@ -804,6 +852,9 @@ EX void achievement_final(bool really_final) {
     case 8:  sid = 61; break;
     case 9:  sid = 44; break;
     case 16: sid = 69; break;
+    case 32: sid = 87; break;
+    case 64: sid = 88; break;
+    case 96: sid = 89; break;
     default: return;
     }
       
@@ -860,14 +911,16 @@ EX void check_total_victory() {
   hadtotalvictory = true;
   achievement_gain("TOTALVICTORY");
   }
-  
+
+EX debugflag debug_achievements = {"steam_achievements"};
+
 /** gain the victory achievements. 
  *  @param hyper true for the Hyperstone victory, and false for the Orb of Yendor victory.
  */
 EX void achievement_victory(bool hyper) {
-  DEBBI(DF_STEAM, ("achievement_victory"))
+  if(debug_achievements) println(hlog, "achievement_victory");
   if(offlineMode) return;
-#ifdef HAVE_ACHIEVEMENTS
+#if CAP_ACHIEVE
   if(cheater) return;
   if(casual) return;
   if(bow::weapon) return;
@@ -880,8 +933,10 @@ EX void achievement_victory(bool hyper) {
   if(tactic::on) return;
   if(!ls::nice_walls()) return;
   if(ineligible_starting_land) return;
+  if(use_custom_land_list) return;
   LATE( achievement_victory(hyper); )
-  DEBB(DF_STEAM, ("after checks"))
+
+  if(debug_achievements) println(hlog, "after checks");
 
   int t = getgametime();
   
@@ -932,16 +987,19 @@ EX void achievement_victory(bool hyper) {
       }
     }
   
-  DEBB(DF_STEAM, ("uploading scores"))
+  if(debug_achievements) println(hlog, "uploading scores");
+
   upload_score(ih1, t);
   upload_score(ih2, turncount);
 #endif
   }
 
-/** call the achievement callbacks */
-EX void achievement_pump();
+EX hookset<string()> hooks_rich_presence;
 
 EX string get_rich_presence_text() {
+
+  string s = callhandlers(string(""), hooks_rich_presence);
+  if(s != "") return s;
 
   #if CAP_DAILY
   if(daily::on)
@@ -1000,13 +1058,9 @@ EX string get_rich_presence_text() {
   return res;
   }
 
-#ifndef HAVE_ACHIEVEMENTS
-void achievement_pump() {}
-#endif
-
 /** display the last achievement gained. */
 EX void achievement_display() {
-  #ifdef HAVE_ACHIEVEMENTS
+  #if CAP_ACHIEVE
   if(achievementTimer) {
     int col = (ticks - achievementTimer);
     if(col > 5000) { achievementTimer = 0; return; }
@@ -1035,10 +1089,5 @@ EX int score_default(int i) {
   if(isAscending(i)) return 1999999999;
   else return 0;
   }
-
-#ifndef HAVE_ACHIEVEMENTS
-EX int get_sync_status() { return 0; }
-EX void set_priority_board(int) { }
-#endif
 
 }

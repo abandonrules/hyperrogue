@@ -1,10 +1,16 @@
+// Relative Hell: control for the anti-de Sitter game
+// Copyright (C) 2022-2025 Zeno Rogue, see '../../hyper.cpp' for details
+
 namespace hr {
 
 namespace ads_game {
 
-multi::config scfg_ads;
+enum pcmds_extra {
+  pcPause=9, pcDisplayTimes=10, pcSwitchSpin=11, pcMenu=12,
+  pcPauseFuture=13, pcPausePast=14, pcPauseMoveSwitch=15
+  };
 
-vector<string> move_names = { "acc down", "acc left", "acc up", "acc right", "fire", "pause", "display times", "switch spin", "menu", "[paused] future", "(paused] past", "[paused] move switch" };
+vector<string> move_names = { "", "", "", "", "acc down", "acc left", "acc up", "acc right", "fire", "pause", "display times", "switch spin", "menu", "[paused] future", "[paused] past", "[paused] move switch" };
 
 void fire() {
   if(!pdata.ammo) return;
@@ -20,6 +26,8 @@ void fire() {
   auto r = std::make_unique<ads_object> (oMissile, c, S1, rsrc_color[rtAmmo]);
   r->shape = &shape_missile;
   r->life_start = 0;
+  r->life_end = M_PI;
+  r->shot_at = ship_pt;
 
   ads_matrix Scell(Id, 0);    
   cell *lcell = hybrid::get_at(vctr, 0);
@@ -53,7 +61,7 @@ void fire() {
     hybrid::in_underlying_geometry([&] {
       gen_terrain(c1, ci);
       });
-    if(among(ci.type, wtSolid, wtDestructible)) {
+    if(among(ci.type, wtSolid, wtDestructible, wtBarrier)) {
       r->life_end = t;
 
       auto Scell_inv = ads_inverse(Scell);
@@ -82,10 +90,14 @@ void fire() {
 
 bool handleKey(int sym, int uni) {
   if(cmode & sm::NORMAL) {
-    char* t = scfg_ads.keyaction;
-    if(t[sym] >= 16 && t[sym] < 32) return true;
+    int* t = multi::scfg_default.keyaction;
+    if(sym >= 0 && sym < multi::SCANCODES && t[sym] >= 16 && t[sym] < 32) return true;
     if(sym == 'v') pushScreen(game_menu);
     if(sym == SDLK_ESCAPE) pushScreen(game_menu);
+    if(sym == SDLK_F1) {
+      if(help == "@") help = get_main_help();
+      gotoHelp(help);
+      }
     return true;
     }
   return false;
@@ -97,8 +109,10 @@ void apply_lorentz(transmatrix lor) {
 
 ld read_movement() {
 
-  ld mdx = multi::axespressed[4]/30000.;
-  ld mdy = multi::axespressed[5]/30000.;
+  auto& axes = multi::axes_for(0);
+
+  ld mdx = axes[0]/30000.;
+  ld mdy = -axes[1]/30000.;
   #if CAP_VR
   if(vrhr::active()) {
     mdy -= vrhr::vrgo_y;
@@ -110,11 +124,11 @@ ld read_movement() {
     return hypot(mdx, mdy);
     }
 
-  auto& a = multi::actionspressed;
-  bool left = a[16+1];
-  bool right = a[16+3];
-  bool up = a[16+2];
-  bool down = a[16];
+  auto& act = multi::action_states[1];
+  bool left = act[multi::pcMoveLeft];
+  bool right = act[multi::pcMoveRight];
+  bool up = act[multi::pcMoveUp];
+  bool down = act[multi::pcMoveDown];
 
   int clicks = (left?1:0) + (right?1:0) + (up?1:0) + (down?1:0);
 
@@ -141,25 +155,25 @@ ld read_movement() {
   }
 
 bool ads_turn(int idelta) {
-  multi::handleInput(idelta, scfg_ads);
+  multi::handleInput(idelta, multi::scfg_default);
   ld delta = idelta / 1000.;
-  
+
   if(!(cmode & sm::NORMAL)) return false;
-  
+
   hybrid::in_actual([&] {
 
   handle_crashes();
+  if(no_param_change && !all_params_default()) no_param_change = false;
 
-  auto& a = multi::actionspressed;
-  auto& la = multi::lactionpressed;
-  
-  if(a[16+4] && !la[16+4] && !paused) fire();
-  if(a[16+5] && !la[16+5]) switch_pause();
-  if(a[16+6] && !la[16+6]) view_proper_times = !view_proper_times;
-  if(a[16+7] && !la[16+7]) auto_rotate = !auto_rotate;
-  if(a[16+8] && !la[16+8]) pushScreen(game_menu);
+  auto& act = multi::action_states[1];
 
-  if(auto_angle) pconf.model_orientation += ang;
+  if(act[multi::pcFire].pressed() && !paused && !game_over) fire();
+  if(act[pcPause].pressed()) switch_pause();
+  if(act[pcDisplayTimes].pressed()) view_proper_times = !view_proper_times;
+  if(act[pcSwitchSpin].pressed()) auto_rotate = !auto_rotate;
+  if(act[pcMenu].pressed()) pushScreen(game_menu);
+
+  if(auto_angle) pconf.mori().get() = spin(ang) * pconf.mori().get();
 
   if(true) {
     
@@ -169,7 +183,8 @@ bool ads_turn(int idelta) {
     ld mul = read_movement();
     ld dv = pt * ads_accel * mul;
 
-    if(paused && a[16+11]) {
+
+    if(paused && act[pcPauseMoveSwitch]) {
       current = ads_matrix(spin(ang*degree) * xpush(mul*delta*-pause_speed) * spin(-ang*degree), 0) * current;
       }
     else
@@ -177,13 +192,13 @@ bool ads_turn(int idelta) {
     
     if(!paused) {
       pdata.fuel -= dv;
-      gen_particles(rpoisson(dv*fuel_particle_qty), vctr, ads_inverse(current * vctrV) * spin(ang*degree+M_PI) * rots::uxpush(0.06 * ads_scale), rsrc_color[rtFuel], fuel_particle_rapidity, fuel_particle_life, 0.02);
+      gen_particles(rpoisson(dv*fuel_particle_qty), vctr, ads_inverse(current * vctrV) * spin(ang*degree+M_PI) * twist::uxpush(0.06 * get_scale()), rsrc_color[rtFuel], fuel_particle_rapidity, fuel_particle_life, 0.02);
       }
 
     ld tc = 0;
     if(!paused) tc = pt;
-    else if(a[16+9]) tc = pt;
-    else if(a[16+10]) tc = -pt;
+    else if(act[pcPauseFuture]) tc = pt;
+    else if(act[pcPausePast]) tc = -pt;
 
     if(!paused && !game_over) {
       shipstate ss;
@@ -205,7 +220,7 @@ bool ads_turn(int idelta) {
     
     if(auto_rotate)
       current.T = cspin(1, 0, tc) * current.T;
-    else if(!paused)
+    else if(!paused && !keep_ship_angle)
       ang += tc / degree;
 
     if(!paused) {
@@ -213,13 +228,13 @@ bool ads_turn(int idelta) {
       pdata.oxygen -= pt;
       if(pdata.oxygen < 0) {
         pdata.oxygen = 0;
-        game_over = true;
+        game_over_with_message("suffocated");
         }
       }
     else view_pt += tc;
     }
 
-  if(auto_angle) pconf.model_orientation -= ang;
+  if(auto_angle) pconf.mori().get() = spin(-ang) * pconf.mori().get();
   
   fixmatrix_ads(current.T);
   fixmatrix_ads(new_vctrV.T);

@@ -24,7 +24,7 @@ static constexpr ld degree = A_PI / 180;
 static const ld golden_phi = (sqrt(5)+1)/2;
 static const ld log_golden_phi = log(golden_phi);
 
-constexpr ld operator"" _deg(long double deg) { return deg * A_PI / 180; }
+constexpr ld operator""_deg(long double deg) { return deg * A_PI / 180; }
 #endif
 
 eGeometry geometry;
@@ -155,6 +155,8 @@ struct transmatrix {
 struct shiftpoint {
   hyperpoint h;
   ld shift;
+  shiftpoint() {}
+  shiftpoint(hyperpoint _h, ld _shift) : h(_h), shift(_shift) {}
   ld& operator [] (int i) { return h[i]; }
   const ld& operator [] (int i) const { return h[i]; }
   inline friend shiftpoint operator + (const shiftpoint& h, const hyperpoint& h2) {
@@ -172,6 +174,8 @@ inline shiftpoint shiftless(const hyperpoint& h, ld shift = 0) {
 struct shiftmatrix {
   transmatrix T;
   ld shift;
+  shiftmatrix() {}
+  shiftmatrix(const transmatrix& _h, ld _shift) : T(_h), shift(_shift) {}
   hyperpoint& operator [] (int i) { return T[i]; }
   const hyperpoint& operator [] (int i) const { return T[i]; }
   inline friend shiftpoint operator * (const shiftmatrix& T, const hyperpoint& h) {
@@ -180,6 +184,12 @@ struct shiftmatrix {
   inline friend shiftmatrix operator * (const shiftmatrix& T, const transmatrix& U) {
     return shiftmatrix{T.T*U, T.shift};
     }
+  };
+
+struct shiftmatrix_or_null : shiftmatrix {
+  bool is_null;
+  shiftmatrix_or_null& operator = (const shiftmatrix& T) { ((shiftmatrix&) self) = T; is_null = false; return self; }
+  shiftmatrix_or_null() { is_null = true; }
   };
 
 inline shiftmatrix shiftless(const transmatrix& T, ld shift = 0) {
@@ -330,10 +340,48 @@ EX ld area_auto(ld r) {
     }
   }
 
+EX ld inverse_area_auto(ld vol) {
+  switch(cgclass) {
+    case gcEuclid: return sqrt(vol / M_PI);
+    case gcHyperbolic: return acosh_clamp(vol / TAU + 1);
+    case gcSphere: return acos_clamp(1 - vol / TAU);
+    default: return 0;
+    }
+  }
+
+EX ld inverse_volume_euc(ld vol) {
+  return pow(vol * 3/4/M_PI, 1/3.);
+  }
+
+EX ld inverse_volume_auto(ld vol) {
+  switch(cgclass) {
+    case gcEuclid: return inverse_volume_euc(vol);
+    case gcHyperbolic: {
+      ld r = vol < 10 ? inverse_volume_euc(vol) : asinh(vol/M_PI)/2;
+      if(r>0) for(int i=0; i<5; i++) r += (vol - volume_auto(r)) / (4 * M_PI * pow(sinh(r), 2));
+      return r;
+      }
+    case gcSphere: {
+      if(vol <= 0) return 0;
+      if(vol >= TAU * M_PI) return M_PI;
+      ld r = vol < M_PI ? inverse_volume_euc(vol) : vol > TAU * M_PI - M_PI ? M_PI - inverse_volume_euc(TAU*M_PI-vol) : vol / TAU;
+      if(sin(r)) for(int i=0; i<5; i++) r += (vol - volume_auto(r)) / (4 * M_PI * pow(sin(r), 2));
+      return r;
+      }
+    default: return 0;
+    }
+  }
+
 /** \brief volume in 3D, area in 2D */
 EX ld wvolarea_auto(ld r) {
   if(WDIM == 3) return volume_auto(r);
   else return area_auto(r);
+  }
+
+/** \brief volume in 3D, area in 2D -- inverse */
+EX ld inverse_wvolarea_auto(ld r) {
+  if(WDIM == 3) return inverse_volume_auto(r);
+  else return inverse_area_auto(r);
   }
 
 EX ld asin_clamp(ld x) { return x>1 ? 90._deg : x<-1 ? -90._deg : std::isnan(x) ? 0 : asin(x); }
@@ -351,10 +399,12 @@ EX ld asin_auto_clamp(ld x) {
     }
   }
 
+EX ld acosh_clamp(ld x) { return x < 1 ? 0 : acosh(x); }
+
 EX ld acos_auto_clamp(ld x) {
   switch(cgclass) {
-    case gcHyperbolic: return x < 1 ? 0 : acosh(x);
-    case gcSL2: return x < 1 ? 0 : acosh(x);
+    case gcHyperbolic: return acosh_clamp(x);
+    case gcSL2: return acosh_clamp(x);
     case gcSphere: return acos_clamp(x);
     case gcProduct: return PIU(acos_auto_clamp(x));
     default: return x;
@@ -420,7 +470,7 @@ EX hyperpoint hpxy(ld x, ld y) {
     return cgi.emb->base_to_actual(h);
     }
   if(sl2) return hyperpoint(x, y, 0, sqrt(1+x*x+y*y));
-  if(rotspace) return hyperpoint(x, y, 0, sqrt(1-x*x-y*y));
+  if(mtwisted) return hyperpoint(x, y, 0, sqrt(1-x*x-y*y));
   return PIU(hpxyz(x,y, translatable ? 1 : sphere ? sqrt(1-x*x-y*y) : sqrt(1+x*x+y*y)));
   }
 
@@ -439,6 +489,14 @@ constexpr hyperpoint Cx13 = hyperpoint(1,0,0,1.41421356237);
 EX bool zero_d(int d, hyperpoint h) { 
   for(int i=0; i<d; i++) if(h[i]) return false;
   return true;
+  }
+
+/** inner product in the current geometry */
+
+EX ld geo_inner(const hyperpoint &h1, const hyperpoint &h2) {
+  ld res = 0;
+  for(int i=0; i<MDIM; i++) res += h1[i] * h2[i] * sig(i);
+  return res;
   }
 
 /** this function returns approximate square of distance between two points
@@ -686,6 +744,13 @@ EX transmatrix euclidean_translate(ld x, ld y, ld z) {
   return T;
   }
 
+EX transmatrix euscalexx(ld x) {
+  transmatrix T = Id;
+  T[0][0] = x;
+  T[1][1] = x;
+  return T;
+  }
+
 EX transmatrix euscale(ld x, ld y) {
   transmatrix T = Id;
   T[0][0] = x;
@@ -699,6 +764,10 @@ EX transmatrix euscale3(ld x, ld y, ld z) {
   T[1][1] = y;
   T[2][2] = z;
   return T;
+  }
+
+EX hyperpoint eupoint(ld x, ld y) {
+  return hyperpoint(x, y, MDIM == 3 ? 1 : 0, 1);
   }
 
 EX transmatrix eupush(hyperpoint h, ld co IS(1)) {
@@ -927,7 +996,7 @@ EX void set_column(transmatrix& T, int i, const hyperpoint& H) {
     T[j][i] = H[j];
   }
 
-EX hyperpoint get_column(transmatrix& T, int i) {
+EX hyperpoint get_column(const transmatrix& T, int i) {
   hyperpoint h;
   for(int j=0; j<MXDIM; j++)
     h[j] = T[j][i];
@@ -993,6 +1062,8 @@ EX shiftmatrix rgpushxto0(const shiftpoint& H) {
   return shiftless(rgpushxto0(H.h), H.shift);
   }
 
+EX bool dont_fixmatrix;
+
 /** \brief Fix the numerical inaccuracies in the isometry T
  *
  *  The nature of hyperbolic geometry makes the computations numerically unstable.
@@ -1001,7 +1072,8 @@ EX shiftmatrix rgpushxto0(const shiftpoint& H) {
  */
 
 EX void fixmatrix(transmatrix& T) {
-  if(nonisotropic) ; // T may be inverse... do not do that
+  if(dont_fixmatrix) return;
+  else if(nonisotropic) ; // T may be inverse... do not do that
   else if(cgflags & qAFFINE) ; // affine
   else if(gproduct) {
     auto z = zlevel(tC0(T));
@@ -1090,21 +1162,37 @@ EX ld det(const transmatrix& T) {
 
 /** warning about incorrect inverse */
 void inverse_error(const transmatrix& T) {
-  println(hlog, "Warning: inverting a singular matrix: ", T);
+  rate_limited_error("Warning: inverting a singular matrix", lalign(0, ": ", T));
   }
 
 /** inverse of a 3x3 matrix */
 EX transmatrix inverse3(const transmatrix& T) {
-  ld d = det(T);
+  ld d = det3(T);
   transmatrix T2;
   if(d == 0) {
-    inverse_error(T); 
+    inverse_error(T);
     return Id;
     }
-  
-  for(int i=0; i<3; i++) 
-  for(int j=0; j<3; j++) 
+
+  for(int i=0; i<3; i++)
+  for(int j=0; j<3; j++)
     T2[j][i] = (T[(i+1)%3][(j+1)%3] * T[(i+2)%3][(j+2)%3] - T[(i+1)%3][(j+2)%3] * T[(i+2)%3][(j+1)%3]) / d;
+  return T2;
+  }
+
+/** inverse of a 2x2 matrix */
+EX transmatrix inverse2(const transmatrix& T) {
+  ld d = det2(T);
+  if(d == 0) {
+    inverse_error(T);
+    return Id;
+    }
+
+  transmatrix T2 = Id;
+  T2[0][0] = T[1][1] / d;
+  T2[1][1] = T[0][0] / d;
+  T2[0][1] = -T[0][1] / d;
+  T2[1][0] = -T[1][0] / d;
   return T2;
   }
 
@@ -1305,6 +1393,27 @@ EX ld hdist(const hyperpoint& h1, const hyperpoint& h2) {
 
 EX ld hdist(const shiftpoint& h1, const shiftpoint& h2) {
   return hdist(h1.h, unshift(h2, h1.shift));
+  }
+
+EX ld precise_hdist(hyperpoint vi, hyperpoint vj) {
+  int n = MDIM-1;
+  hassert(n == 2 || n == 3);
+
+  ld da = acosh(vi[n]);
+  ld db = acosh(vj[n]);
+
+  ld rs = sqhypot_d(n, vi) * sqhypot_d(n, vj);
+  if(!rs) return da + db;
+
+  ld cosphi = 0;
+  for(int i=0; i<n; i++) cosphi += vi[i] * vj[i];
+  cosphi /= sqrt(rs);
+
+  ld co = sinh(da) * sinh(db) * (1 - cosphi);
+
+  ld v = cosh(da - db) + co;
+  if(v < 1) return 0;
+  return acosh(v);
   }
 
 /** like orthogonal_move but fol may be factor (in 2D graphics) or level (elsewhere) */
@@ -1648,7 +1757,7 @@ EX hyperpoint direct_exp(hyperpoint v) {
   #endif
   #if MAXMDIM >= 4
   if(nil) return nilv::formula_exp(v);
-  if(sl2 || stretch::in()) return stretch::mstretch ? nisot::numerical_exp(v) : rots::formula_exp(v);
+  if(sl2 || stretch::in()) return stretch::mstretch ? nisot::numerical_exp(v) : unshift(twist::formula_exp(v));
   #endif
   if(gproduct) return product::direct_exp(v);
   ld d = hypot_d(GDIM, v);
@@ -1746,22 +1855,35 @@ EX ld raddif(ld a, ld b) {
 
 EX int bucket_scale = 10000;
 
-EX unsigned bucketer(ld x) {
-  return (unsigned) (long long) (floor(x * bucket_scale + .5));
+#if HDR
+using buckethash_t = uint64_t;
+
+inline void hashmix(buckethash_t& seed, buckethash_t i) { seed ^= i + 0x9e3779b9 + (seed << 6) + (seed >> 2); }
+inline buckethash_t hashmix_to(buckethash_t seed, buckethash_t i) { hashmix(seed, i); return seed; }
+#endif
+
+EX buckethash_t bucketer(ld x) {
+  return (buckethash_t) (long long) (floor(x * bucket_scale + .5));
   }
 
-EX unsigned bucketer(hyperpoint h) {
-  unsigned dx = 0;
+EX buckethash_t bucketer(hyperpoint h) {
+  buckethash_t seed = 0;
   if(gproduct) {
     auto d = product_decompose(h);
     h = d.second;
-    dx += bucketer(d.first) * 50;
+    hashmix(seed, bucketer(d.first));
     if(cgi.emb->is_euc_in_product() && in_h2xe()) h /= h[2];
     }
-  dx += bucketer(h[0]) + 1000 * bucketer(h[1]) + 1000000 * bucketer(h[2]);
-  if(MDIM == 4) dx += bucketer(h[3]) * 1000000001;
-  if(elliptic) dx = min(dx, -dx);
-  return dx;
+  if(elliptic && make_tuple(h[0], h[1], h[2], h[3]) < make_tuple(-h[0], -h[1], -h[2], -h[3])) h = -h;
+  // With one pass, e.g., (-149,9999,10000) vs (-298,19998,10000) is a hash collision,
+  // and that may happen during the rotation of a hex grid. So make two passes
+  for(int a=0; a<2; a++) {
+    hashmix(seed, bucketer(h[0]));
+    hashmix(seed, bucketer(h[1]));
+    hashmix(seed, bucketer(h[2]));
+    if(MDIM == 4) hashmix(seed, bucketer(h[3]));
+    }
+  return seed;
   }  
 
 #if MAXMDIM >= 4
@@ -1915,21 +2037,25 @@ EX bool clockwise(hyperpoint h1, hyperpoint h2) {
   return h1[0] * h2[1] > h1[1] * h2[0];
   }
 
-EX ld worst_precision_error;
-
-#if HDR
-struct hr_precision_error : hr_exception { hr_precision_error() : hr_exception("precision error") {} };
-#endif
-
-/** check if a and b are the same, testing for equality. Throw an exception or warning if not sure */
-EX bool same_point_may_warn(hyperpoint a, hyperpoint b) {
-  ld d = hdist(a, b);
-  if(d > 1e-2) return false;
-  if(d > 1e-3) throw hr_precision_error();
-  if(d > 1e-6 && worst_precision_error <= 1e-6)
-    addMessage("warning: precision errors are building up!");
-  if(d > worst_precision_error) worst_precision_error = d;
-  return true;
+/** compute the area of a shape -- v.back() must equal v[0] */
+EX ld compute_area(const vector<hyperpoint>& v) {
+  ld area = 0;
+  for(int i=0; i<isize(v)-1; i++) {
+    hyperpoint h1 = v[i];
+    hyperpoint h2 = v[i+1];
+    if(euclid)
+      area += (h2[1] + h1[1]) * (h2[0] - h1[0]) / 2;
+    else {
+      hyperpoint rh2 = gpushxto0(h1) * h2;
+      hyperpoint rh1 = gpushxto0(h2) * h1;
+      ld b1 = atan2(rh1[1], rh1[0]);
+      ld b2 = atan2(rh2[1], rh2[0]);
+      ld x = b2 - b1 + M_PI;
+      cyclefix(x, 0);
+      area += x;
+      }
+    }
+  return area;
   }
 
 }

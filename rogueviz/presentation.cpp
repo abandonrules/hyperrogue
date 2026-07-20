@@ -20,15 +20,16 @@ grapher::grapher(ld _minx, ld _miny, ld _maxx, ld _maxy) : minx(_minx), miny(_mi
   ld medx = (minx + maxx) / 2;
   ld medy = (miny + maxy) / 2;
 
-  hyperpoint zero = atscreenpos(cd.xcenter - sca * medx, cd.ycenter + sca * medy, 1) * C0;
+  shiftpoint zero = atscreenpos(cd.xcenter - sca * medx, cd.ycenter + sca * medy) * C0;
 
-  hyperpoint zero10 = atscreenpos(cd.xcenter - sca * medx + sca, cd.ycenter + sca * medy, 1) * C0;
-  hyperpoint zero01 = atscreenpos(cd.xcenter - sca * medx, cd.ycenter + sca * medy - sca, 1) * C0;
+  shiftpoint zero10 = atscreenpos(cd.xcenter - sca * medx + sca, cd.ycenter + sca * medy) * C0;
+  shiftpoint zero01 = atscreenpos(cd.xcenter - sca * medx, cd.ycenter + sca * medy - sca) * C0;
   
   T = shiftless(Id);
-  T.T[LDIM] = zero;
-  T.T[0] = zero10 - zero;
-  T.T[1] = zero01 - zero;
+  T.shift = zero.shift;
+  T.T[LDIM] = zero.h;
+  T.T[0] = zero10.h - zero.h;
+  T.T[1] = zero01.h - zero.h;
   
   T.T = transpose(T.T);
   }
@@ -76,6 +77,11 @@ void no_other_hud(presmode mode) {
   clearMessages();
   }
 
+void replace_hud(presmode mode, reaction_t f) {
+  add_temporary_hook(mode, hooks_prestats, 300, [f] { f(); return true; });
+  clearMessages();
+  }
+
 /** disable all the HyperRogue game stuff */
 void non_game_slide(presmode mode) {
   if(mode == pmStart) {
@@ -87,7 +93,6 @@ void non_game_slide(presmode mode) {
     tour::slide_backup(vid.drawmousecircle, false);
     tour::slide_backup(draw_centerover, false);
     }
-  no_other_hud(mode);
   }
 
 void non_game_slide_scroll(presmode mode) {
@@ -116,6 +121,8 @@ void empty_screen(presmode mode, color_t col) {
 void slide_error(presmode mode, string s) {
   empty_screen(mode, 0x400000);
   add_stat(mode, [s] {
+    cmode = sm::VR_MENU | sm::NOSCR;
+    gamescreen();
     dialog::init();
     dialog::addTitle(s, 0xFF0000, 150);
     dialog::display();
@@ -159,23 +166,24 @@ void draw_texture(texture::texture_data& tex, ld dx, ld dy, ld scale1) {
   glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
   }
 
-void sub_picture(string s, flagtype flags, ld dx, ld dy, ld scale) {
+texture::texture_data& get_texture(string s, flagtype flags = 0) {
   if(!textures.count(s)) {
     auto& tex = textures[s];
     println(hlog, "rt = ", tex.readtexture(s));
     println(hlog, "gl = ", tex.loadTextureGL());
     }
-  auto& tex = textures[s];
+  return textures[s];
+  }
+
+void sub_picture(string s, flagtype flags, ld dx, ld dy, ld scale) {
+  auto& tex = get_texture(s);
+  if(tex.textureid == 0) return;
   flat_model_enabler fme;
   draw_texture(tex, dx, dy, scale);
   }
   
 void show_picture(presmode mode, string s, flagtype flags) {
-  if(mode == pmStartAll) {
-    auto& tex = textures[s];
-    println(hlog, "rt = ", tex.readtexture(s));
-    println(hlog, "gl = ", tex.loadTextureGL());
-    }
+  if(mode == pmStartAll) get_texture(s);
   add_stat(mode, [s, flags] { sub_picture(s, flags); return false; });
   }
 
@@ -185,11 +193,13 @@ string latex_packages =
   "\\usepackage{amsfonts}\n"
   "\\usepackage{varwidth}\n"
   "\\usepackage{amsfonts}\n"
+  "\\usepackage{adjustbox}\n"
   "\\usepackage{enumitem}\n"
   "\\usepackage[utf8]{inputenc}\n"
   "\\usepackage[T1]{fontenc}\n"
   "\\usepackage{color}\n"
   "\\usepackage{graphicx}\n"
+  "\\usepackage{url}\n"
   "\\definecolor{remph}{rgb}{0,0.5,0}\n"
   "\\renewcommand{\\labelitemi}{{\\color{remph}$\\blacktriangleright$}}\n";
 
@@ -199,7 +209,8 @@ string latex_cachename(string s, flagtype flags) {
   return hr::format("latex-cache/%08X.png", hash);
   }
 
-/* note: you pdftopng from the xpdf package for this to work! */
+/* note: for this to work, you need either pdftopng from the xpdf package,
+ * or pdftoppm from the poppler-utils package */
 string gen_latex(presmode mode, string s, int res, flagtype flags) {
   string filename = latex_cachename(s, flags);
   if(mode == pmStartAll) {
@@ -216,13 +227,15 @@ string gen_latex(presmode mode, string s, int res, flagtype flags) {
         "\\end{document}\n", latex_packages.c_str(), s.c_str());
       fclose(f);
       hr::ignore(system("cd latex-cache; pdflatex rogueviz-latex.tex"));
+      bool has_working_pdftopng = system("pdftopng -v > /dev/null 2>&1") == 0;
+      string pdftopng_command = has_working_pdftopng ? "pdftopng" : "pdftoppm -png";
       string pngline = 
-        (flags & LATEX_COLOR) ? 
-          "cd latex-cache; pdftopng -alpha -r " + its(res) + " rogueviz-latex.pdf t"
-        : "cd latex-cache; pdftopng -r " + its(res) + " rogueviz-latex.pdf t";
+        (flags & LATEX_COLOR) && has_working_pdftopng ?
+          "cd latex-cache; " + pdftopng_command + " -alpha -r " + its(res) + " rogueviz-latex.pdf t"
+        : "cd latex-cache; " + pdftopng_command + " -r " + its(res) + " rogueviz-latex.pdf t";
       println(hlog, "calling: ", pngline);
       hr::ignore(system(pngline.c_str()));
-      rename("latex-cache/t-000001.png", filename.c_str());
+      rename(has_working_pdftopng ? "latex-cache/t-000001.png" : "latex-cache/t-1.png", filename.c_str());
       }
     }
   return filename;
@@ -268,7 +281,7 @@ void dialog_add_latex(string s, color_t col, int size, flagtype flags) {
       rtver[i].texture[1] = (tex.base_y + (cy[i] ? tex.stry : 0.)) / tex.theight;
       ld x = dialog::dcenter + (cx[i]*2-1) * scale * tx;
       ld y = (dialog::top + dialog::tothei)/2 + (cy[i]*2-1) * scale * ty;
-      rtver[i].coords = glhr::pointtogl( atscreenpos(x, y, 1) * C0 );
+      rtver[i].coords = glhr::pointtogl( atscreenpos(x, y).T * C0 );
       }
 
     glhr::be_textured();
@@ -307,6 +320,47 @@ void dialog_may_latex(string latex, string normal, color_t col, int size, flagty
     dialog::addInfo(normal, col);
     dialog::items.back().scale = size;
     }
+  }
+
+map<string, basic_textureinfo> finf_of;
+void latex_in_space(const shiftmatrix& V, ld scale, string s, color_t col, flagtype flags) {
+  string fn = gen_latex(pmStart, s, 600, flags);
+  if(!textures.count(fn)) {
+    gen_latex(pmStartAll, s, 600, flags);
+    auto& tex = textures[fn];
+    tex.original = true;
+    tex.twidth = 4096;
+    println(hlog, "rt = ", tex.readtexture(fn));
+    if(!(flags & LATEX_COLOR))
+    for(int y=0; y<tex.theight; y++)
+    for(int x=0; x<tex.twidth; x++) {
+      auto& pix = tex.get_texture_pixel(x, y);
+      if(y <= tex.base_y || y >= tex.base_y + tex.stry || x <= tex.base_x || x >= tex.base_x + tex.strx) { pix = 0; continue; }
+      int dark = 255 - part(pix, 1);
+      pix = 0xFFFFFF + (dark << 24);
+      }
+    println(hlog, "gl = ", tex.loadTextureGL());
+    println(hlog, "fn is ", fn);
+    }
+  auto& finf = finf_of[fn];
+  auto& tex = textures[fn];
+  finf.texture_id = tex.textureid;
+  finf.tvertices.clear();
+  static vector<glhr::textured_vertex> rtver(4);
+  ld tx = tex.tx;
+  ld ty = tex.ty;
+  for(int i=0; i<6; i++) {
+    ld cx[6] = {1,0,0,1,1,0};
+    ld cy[6] = {1,1,0,1,0,0};
+    finf.tvertices.push_back(glhr::makevertex((tex.base_x + (cx[i] ? tex.strx : 0.)) / tex.twidth, (tex.base_y + (cy[i] ? tex.stry : 0.)) / tex.theight, 0));
+    curvedata.push_back(glhr::pointtogl(point31((cx[i]*2-1) * tx * scale, (cy[i]*2-1) * ty * scale, MDIM == 3 ? 1 : 0)));
+    }
+  auto &res = queuetable(V, curvedata, isize(curvedata)-curvestart, col, col, PPR::LINE);
+  res.offset = curvestart;
+  res.offset_texture = 0;
+  res.tinf = &finf;
+  res.flags |= POLY_TRIANGLES;
+  curvestart = isize(curvedata);
   }
 
 int video_start = 0;
@@ -386,7 +440,7 @@ void show_animation(presmode mode, string s, int sx, int sy, int frames, int fps
   }
 
 void choose_presentation() {
-  cmode = sm::NOSCR;
+  cmode = sm::NOSCR | sm::VR_MENU;
   gamescreen();
 
   getcstat = ' ';
@@ -554,14 +608,20 @@ void uses_game(presmode mode, string name, reaction_t launcher, reaction_t resto
     }
   }
 
+color_t latex_ring = 0x00FF0080;
+
+string latex_s;
+
 void latex_slide(presmode mode, string s, flagtype flags, int size) {
   empty_screen(mode);
+  latex_s = s;
   add_stat(mode, [=] {
     tour::slide_backup(no_find_player, true);
     if(flags & sm::SIDE) {
       cmode |= sm::SIDE;
       dynamicval<bool> db(nomap, (flags & sm::NOSCR));
       dynamicval<color_t> dc(modelcolor, nomap ? 0 : 0xFF);
+      dynamicval<color_t> dr(ringcolor, nomap ? 0 : latex_ring);
       dynamicval<color_t> dc2(bordcolor, 0);
       gamescreen();
       callhooks(hooks_latex_slide);
@@ -570,11 +630,12 @@ void latex_slide(presmode mode, string s, flagtype flags, int size) {
       gamescreen();
     dialog::init();
     dialog_may_latex(
-      s,
+      latex_s,
       "(LaTeX is off)",
       dialog::dialogcolor, size, LATEX_COLOR
       );
     dialog::display();
+    callhooks(hooks_post_latex_slide);
     return true;
     });
   no_other_hud(mode);
@@ -604,7 +665,7 @@ int pres_hooks =
     }) +
   addHook_slideshows(300, [] (tour::ss::slideshow_callback cb) {
     if(rogueviz::pres::rvslides_data.empty()) pres::gen_rvtour_data();
-    cb(XLAT("non-Euclidean geometry in data analysis"), &pres::rvslides_data[0], 'd');
+    cb(XLAT("Non-Euclidean Geometry in Data Analysis"), &pres::rvslides_data[0], 'd');
 
     if(rogueviz::pres::rvslides_mixed.empty()) pres::gen_rvtour_mixed();
 
@@ -657,6 +718,28 @@ int runslide =
     arg::shift_arg_formula(angle);
     dir = 0;
     })
+  + arg::add3("-pres-key-at", [] {
+    arg::shift(); int *tickid = new int;
+    *tickid = arg::argi();
+    addHook(hooks_frame, 0, [tickid] {
+      if(ticks >= *tickid) {
+        presentation(pmKey);
+        *tickid = 999999999;
+        }
+      });
+    })
+  + arg::add3("-pres-key2-at", [] {
+    arg::shift(); int *tickid = new int;
+    *tickid = arg::argi();
+    addHook(hooks_frame, 0, [tickid] {
+      if(ticks >= *tickid) {
+        presentation(pmKeyAlt);
+        *tickid = 999999999;
+        }
+      });
+    })
+  + arg::add3("-pres-anf", [] { anims::noframes = anims::period * 60 / 1000; })
+  + arg::add3("-pres-mul", [] { arg::shift(); anims::noframes *= arg::argf(); })
   ;
 }
 #endif

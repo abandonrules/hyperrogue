@@ -160,7 +160,7 @@ EX bool earthFloor(cell *c) {
   if(c->monst) return false;
   if(c->wall == waDeadwall) { c->wall = waDeadfloor; return true; }
   if(c->wall == waDune) { c->wall = waNone; return true; }
-  if(c->wall == waStone && c->land != laTerracotta) { c->wall = waNone; return true; }
+  if(c->wall == waStone && !among(c->land, laTerracotta, laMercuryRiver, laVariant)) { c->wall = waNone; return true; }
   if(c->wall == waAncientGrave || c->wall == waFreshGrave || c->wall == waRuinWall) {
     c->wall = waNone;
     return true;
@@ -259,11 +259,11 @@ EX bool earthWall(cell *c) {
     c->wall = waChasm;
     return true;
     }
-  if(c->wall == waNone && c->land == laTerracotta) {
+  if(c->wall == waNone && among(c->land, laTerracotta, laMercuryRiver)) {
     c->wall = waMercury;
     return true;
     }
-  if(c->wall == waArrowTrap && c->land == laTerracotta) {
+  if(c->wall == waArrowTrap && among(c->land, laTerracotta, laMercuryRiver)) {
     destroyTrapsOn(c);
     c->wall = waMercury;
     return true;
@@ -575,6 +575,7 @@ EX bool destroyHalfvine(cell *c, eWall newwall IS(waNone), int tval IS(6)) {
   }
 
 EX int coastvalEdge(cell *c) { return coastval(c, laIvoryTower); }
+EX int coastvalWest(cell *c) { return coastval(c, laWestWall); }
 
 EX int gravityLevel(cell *c) {
   if(c->land == laIvoryTower && ls::hv_structure())
@@ -601,10 +602,10 @@ EX int gravityLevelDiff(cell *c, cell *d) {
   if(shmup::on) return 0;
 
   int nid = neighborId(c, d);
-  int id1 = parent_id(c, 1, coastvalEdge) + 1;
+  int id1 = parent_id(c, 1, coastvalWest) + 1;
   int di1 = angledist(c->type, id1, nid);
 
-  int id2 = parent_id(c, -1, coastvalEdge) - 1;
+  int id2 = parent_id(c, -1, coastvalWest) - 1;
   int di2 = angledist(c->type, id2, nid);
   
   if(di1 < di2) return 1;
@@ -640,7 +641,7 @@ EX bool cellEdgeUnstable(cell *c, flagtype flags IS(0)) {
   return true;
   }
 
-int tidalphase;
+EX int tidalphase, tidalphase2;
 
 EX int tidalsize, tide[200];
 
@@ -669,11 +670,13 @@ EX void calcTidalPhase() {
     for(int i=0; i<tidalsize; i++) printf("%d ", tide[i]);
     printf("\n"); */
     }
-  tidalphase = tide[
-    (shmup::on ? shmup::curtime/600 : turncount)
-    % tidalsize];
+  int t = shmup::on ? shmup::curtime/600 : turncount;
+  tidalphase = tide[t % tidalsize];
+  tidalphase2 = tidalphase;
+  if(tide[gmod(t-1, tidalsize)] < tidalphase) tidalphase2 = tidalphase-1;
+  if(tide[gmod(t+1, tidalsize)] < tidalphase) tidalphase2 = tidalphase-1;
   if(peace::on)
-    tidalphase = 5 + tidalphase / 6;
+    tidalphase2 = tidalphase = 5 + tidalphase / 6;
   }
 
 EX int tidespeed() {
@@ -708,8 +711,8 @@ EX void checkTide(cell *c) {
         if(!c2) continue;
         if(c2->land == laBarrier || c2->land == laOceanWall) ;
         else if(c2->land == laOcean) 
-          seadist = min(seadist, c2->SEADIST ? c2->SEADIST+1 : 7),
-          landdist = min(landdist, c2->LANDDIST ? c2->LANDDIST+1 : 7);
+          seadist = min(seadist, c2->SEADIST >= 1 ? c2->SEADIST+1 : 7),
+          landdist = min(landdist, c2->LANDDIST >= 1 ? c2->LANDDIST+1 : 7);
         else if(isSealand(c2->land)) seadist = 1;
         else landdist = 1;
         }
@@ -721,8 +724,8 @@ EX void checkTide(cell *c) {
     
     if(c->wall == waStrandedBoat || c->wall == waBoat)
       c->wall = t >= tidalphase ? waBoat : waStrandedBoat;
-    if(c->wall == waSea || c->wall == waNone)
-      c->wall = t >= tidalphase ? waSea : waNone;
+    if(c->wall == waSea || c->wall == waNone || c->wall == waShallow)
+      c->wall = t >= tidalphase ? waSea : t >= tidalphase2 ? waShallow : waNone;
     if(isFire(c) && t >= tidalphase)
       c->wall = waSea;
     }
@@ -743,20 +746,35 @@ EX void checkTide(cell *c) {
     else if(c->wall == waMagma) c->wall = waNone;
     }
   #endif
+  if(c->land == laCanvas && ccolor::live_canvas) {
+    color_t col = ccolor::generateCanvas(c);
+    c->landparam = col;
+    c->wall = canvas_default_wall;
+    if(col & 0x1000000) c->wall = waWaxWall;
+    }
+  }
+
+EX bool makeNoMonster(cell *c) {
+  changes.ccell(c);
+  if(isAnyIvy(c->monst)) killMonster(c, moPlayer, 0);
+  else if(c->monst == moPair) {
+    changes.ccell(c->move(c->mondir));
+    if(c->move(c->mondir)->monst == moPair)
+      c->move(c->mondir)->monst = moNone;
+    }
+  else if(isWorm(c->monst)) {
+    if(!items[itOrbDomination]) return false;
+    }
+  else if(isMultitile(c->monst)) {
+    return false;
+    }
+  else c->monst = moNone;
+  return true;
   }
 
 EX bool makeEmpty(cell *c) {
-
   if(c->monst != moPrincess) {
-    if(isAnyIvy(c->monst)) killMonster(c, moPlayer, 0);
-    else if(c->monst == moPair) {
-      if(c->move(c->mondir)->monst == moPair)
-        c->move(c->mondir)->monst = moNone;
-      }
-    else if(isWorm(c->monst)) {
-      if(!items[itOrbDomination]) return false;
-      }
-    else c->monst = moNone;
+    if(!makeNoMonster(c)) return false;
     }
 
   if(c->land == laCanvas) ;
@@ -814,10 +832,12 @@ EX bool makeEmpty(cell *c) {
     }
   
   if(c->land == laWildWest) {
-    forCellEx(c2, c)
-    forCellEx(c3, c2)
-      if(c3->wall != waBarrier)
-        c3->wall = waNone;
+    celllister cl(cwt.at, 100, 1000000, NULL);
+    for(cell *c: cl.lst) {
+      if(c == cwt.at) continue;
+      if(c->wall != waSaloon && !c->item) break;
+      c->wall = waNone;
+      }
     }
   
   return true;

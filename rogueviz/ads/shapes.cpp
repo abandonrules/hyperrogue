@@ -1,3 +1,6 @@
+// Relative Hell: shapes of various stuff
+// Copyright (C) 2022-2025 Zeno Rogue, see '../../hyper.cpp' for details
+
 namespace hr {
 
 namespace ads_game {
@@ -12,17 +15,26 @@ vector<ld> shape_weapon = {-0.0731165, 0.0596477, -0.047071, 0.0268977, 0.080775
 vector<ld> shape_fuel = {0.0802337, 0.0224383, 0.0802337, -0.0224383, 0.0224383, -0.0802337, -0.0224383, -0.0802337, -0.0802337, -0.0224383, -0.0802337, 0.0224383, -0.0224383, 0.0802337, 0.0224383, 0.0802337, };
 vector<ld> shape_airtank = {-0.101054, 0.0134738, -0.0904219, 0.014429, -0.0779099, 0.0442451, 0.078873, 0.043284, 0.0894665, 0.0259742, 0.0894665, -0.0259742, 0.078873, -0.043284, -0.0779099, -0.0442451, -0.0904219, -0.014429, -0.101054, -0.0134738, };
 vector<ld> shape_ship = { 0.0699706, 0, 0.0509304, 0.019032, 0.0056909, 0.023788, 0.0318813, 0.0309258, 0.0330715, 0.0368693, 0.00331668, 0.0380512, -0.0630665, 0.0699568, -0.0619577, 0.041535, -0.0678691, 0.0415233, -0.0678946, 0.0261072, -0.0572505, 0.0237463, -0.0572505, -0.0237463, -0.0678946, -0.0261072, -0.0678691, -0.0415233, -0.0619577, -0.041535, -0.0630665, -0.0699568, 0.00331668, -0.0380512, 0.0330715, -0.0368693, 0.0318813, -0.0309258, 0.0056909, -0.023788, 0.0509304, -0.019032 };
+vector<ld> shape_turret = { 0.154282, 0.0304832, 0.134789, 0.0173922, 0.101045, 0.013638, 0.0836262, 0.0210614, 0.083667, 0.0489607, 0.0595074, 0.0812028, 0.00620363, 0.115388, -0.0862034, 0.0682185, -0.0544688, 0.0358999, -0.0544688, -0.0358999, -0.0862034, -0.0682185, 0.00620363, -0.115388, 0.0595074, -0.0812028, 0.083667, -0.0489607, 0.0836262, -0.0210614, 0.101045, -0.013638, 0.134789, -0.0173922, 0.154282, -0.0304832 };
+
+const ld turret_length = 0; // 0.15;
+const ld turret_dist = 0.3;
 
 struct ship_model: gi_extension {
   map<ld, hpcshape> ship_at_scale;
   };
+
+/** how much should be the objects scaled */
+ld get_scale() {
+  return cgi.scalefactor * 3;
+  }
 
 const hpcshape& make_shape() {
 
   auto& mmd = (unique_ptr<ship_model>&) cgi.ext["ship_model"];
   if(!mmd) mmd = std::make_unique<ship_model> ();
 
-  auto scale = DS_(scale);
+  auto scale = get_scale();
   auto sas = at_or_null(mmd->ship_at_scale, scale);
 
   if(sas) return *sas;  
@@ -40,6 +52,22 @@ const hpcshape& make_shape() {
   cgi.extra_vertices();
 
   return shShip;
+  }
+
+extern color_t shipcolor;
+
+template<class T> void render_ship_parts(const T& render_ship_part) {
+  if(simple_ship) {
+    render_ship_part(make_shape(), shipcolor, 0);
+    return;
+    }
+  charstyle& cs = getcs();
+  render_ship_part(cgi.shSpaceshipBase, cs.skincolor, 0);
+  render_ship_part(cgi.shSpaceshipEngine, cs.haircolor, 0);
+  render_ship_part(cgi.shSpaceshipEngine, cs.haircolor, 1);
+  render_ship_part(cgi.shSpaceshipGun, cs.dresscolor, 0);
+  render_ship_part(cgi.shSpaceshipGun, cs.dresscolor, 1);
+  render_ship_part(cgi.shSpaceshipCockpit, cs.eyecolor, 0);
   }
 
 }}

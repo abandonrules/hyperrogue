@@ -10,13 +10,13 @@
 #include "hyper.h"
 namespace hr {
 
-EX const string dnameof(eMonster m) { return m >= 0 && m < motypes ? minf[m].name : hr::format("[MONSTER %d]", m); }
-EX const string dnameof(eLand l) { return l >= 0 && l < landtypes ? linf[l].name : hr::format("[LAND %d]", l); }
-EX const string dnameof(eWall w) { return w >= 0 && w < walltypes ? winf[w].name : hr::format("[WALL %d]", w); }
-EX const string dnameof(eItem i) { return i >= 0 && i < ittypes ? iinf[i].name : hr::format("[ITEM %d]", i); }
+EX string dnameof(eMonster m) { return m >= 0 && m < motypes ? minf[m].name : hr::format("[MONSTER %d]", m); }
+EX string dnameof(eLand l) { return l >= 0 && l < landtypes ? linf[l].name : hr::format("[LAND %d]", l); }
+EX string dnameof(eWall w) { return w >= 0 && w < walltypes ? winf[w].name : hr::format("[WALL %d]", w); }
+EX string dnameof(eItem i) { return i >= 0 && i < ittypes ? iinf[i].name : hr::format("[ITEM %d]", i); }
 
 #if HDR
-#define NUMLAN 8
+#define NUMLAN 9
 
 struct stringpar {
   string v;
@@ -303,6 +303,10 @@ void parrep(string& x, string w, stringpar p) {
     rep(x, "%abl"+w, data.abl);
     rep(x, "%d"+w, data.abl); // Dativ (which equals Ablative in German)
     }
+  if(l == 8) {
+    rep(x, "%"+w, data.nom);
+    rep(x, "%m"+w, data.abl); // Measure word in Chinese
+    }
 #endif
   if(true) {
     // proper names (R'Lyeh)
@@ -386,6 +390,21 @@ EX string XLAT(string x, stringpar p1, stringpar p2, stringpar p3, stringpar p4,
   return x;
   }
 
+EX const char* XLAT1_to(string x, int language) {
+#if CAP_TRANS
+  const fullnoun *N = findInHashTable(x, all_nouns);
+  if(N) return N->n[7].nom;
+#endif
+  return nullptr;
+  }
+
+EX const char* XLAT1_acc(string x, int language) {
+#if CAP_TRANS
+  const fullnoun *N = findInHashTable(x, all_nouns);
+  if(N) return N->n[7].acc;
+#endif
+  return nullptr;
+  }
 
 EX string XLATN(string x) { 
 #if CAP_TRANS

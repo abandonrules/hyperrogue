@@ -25,6 +25,9 @@ EX bool on;
 /** \brief should the presentation texts be shown */
 EX bool texts = true;
 
+/** \brief helps to automatize interactive presentations */
+EX int tour_value;
+
 EX string tourhelp;
 
 /** \brief index of the current slide */
@@ -35,7 +38,8 @@ EX int currentslide;
 enum presmode { 
   pmStartAll = 0,
   pmStart = 1, pmFrame = 2, pmStop = 3, pmKey = 4, pmRestart = 5,
-  pmAfterFrame = 6, pmHelpEx = 7,
+  pmAfterFrame = 6, pmHelpEx = 7, pmKeyAlt = 8, pmKeyAlt2 = 9,
+  pmSlideHelp = 10,
   pmGeometry = 11, pmGeometryReset = 13, pmGeometryStart = 15,
   pmGeometrySpecial = 16
   };
@@ -73,6 +77,10 @@ static constexpr flagtype USE_SLIDE_NAME = 128;
 static constexpr flagtype NOTITLE = 256;
 /** \brief always display the text, even if going back or texts are disabled */
 static constexpr flagtype ALWAYS_TEXT = 256;
+/** \brief add a sidescreen to a normal screen */
+static constexpr flagtype SIDE = 512;
+/** \brief add a sidescreen to a normal screen */
+static constexpr flagtype TOUR_CONTROLS = 1024;
 #endif
 
 EX vector<reaction_t> restorers;
@@ -110,20 +118,24 @@ EX void slide_action(presmode mode, char key, string text, reaction_t act) {
     help_extensions.push_back(help_extension{key, text, act});
   }
 
-EX void enable_canvas_backup(char canv) {
-  slide_backup(patterns::whichCanvas, canv);
+EX void enable_canvas_backup(ccolor::data *canv) {
+  slide_backup(ccolor::which, canv);
   slide_backup(firstland, laCanvas);
   slide_backup(specialland, laCanvas);
   slide_backup(land_structure);
   slide_backup(randomPatternsMode);
+  slide_backup(geometry);
+  slide_backup(variation);
+  slide_backup(pmodel);
   enable_canvas();
   }
 
 /** \brief an auxiliary function to enable a visualization in the Canvas land */
-EX void setCanvas(presmode mode, char canv) {
+EX void setCanvas(presmode mode, ccolor::data *canv, reaction_t f) {
   if(mode == pmStart) {
     gamestack::push();
     enable_canvas_backup(canv);
+    f();
     start_game();
     resetview();
     }
@@ -132,6 +144,23 @@ EX void setCanvas(presmode mode, char canv) {
     slide_restore_all();
     }
   }
+
+EX void setCanvas(presmode mode, ccolor::data *canv) { setCanvas(mode, canv, [] {}); }
+
+EX void setCanvasColor(presmode mode, color_t col, reaction_t f) {
+  setCanvas(mode, &ccolor::plain, [f, col] { slide_backup(ccolor::rwalls, 0); slide_backup(ccolor::plain.ctab, colortable{col}); f(); });
+  }
+
+EX void setWhiteCanvas(presmode mode, reaction_t f) {
+  setCanvasColor(mode, 0xFFFFFF, f);
+  }
+
+EX void setWhiteCanvas(presmode mode) { setWhiteCanvas(mode, [] {}); }
+
+EX void setPlainCanvas(presmode mode, reaction_t f) { setCanvas(mode, &ccolor::plain, [f] {slide_backup(ccolor::rwalls, 0); f(); }); }
+
+EX void setPlainCanvas(presmode mode) { setCanvas(mode, &ccolor::plain, [] {slide_backup(ccolor::rwalls, 0); }); }
+
 
 /** \brief static mode: we get Orbs of Teleport to use them instead of movement */
 bool sickmode;
@@ -180,7 +209,7 @@ string get_slidename(const string& s) {
   return s.substr(i);
   }
 
-string get_foldername(const string& s) {
+EX string get_foldername(const string& s) {
   int i = 0;
   for(int k=0; k<isize(s); k++) if(s[k] == '/') i = k+1;
   return s.substr(0, i);
@@ -196,15 +225,39 @@ string get_subname(const string& s, const string& folder) {
   return s.substr(isize(folder));
   }
 
+EX void alt_deck_help(presmode mode, string s) {
+  if(mode == pmSlideHelp && dialog::display_keys == 3) {
+    string slidename = get_slidename(slides[currentslide].name);
+    help =
+      helptitle(XLAT(slidename), 0xFF8000) +
+      XLAT(s);
+    }
+  }
+
 /** \brief display the help text for the current slide if texts enabled */
 EX void slidehelp() {
   if(!slides[currentslide].help[0]) return;
   string slidename = get_slidename(slides[currentslide].name);
-  gotoHelp(
-    help =
-      helptitle(XLAT(slidename), 0xFF8000) +
-      XLAT(slides[currentslide].help)
-    );
+
+  help =
+    helptitle(XLAT(slidename), 0xFF8000) +
+    XLAT(slides[currentslide].help);
+
+  if(slides[currentslide].flags & TOUR_CONTROLS) {
+    if(dialog::display_keys == 3)
+      help += "\n\n" + XLAT(
+        "Press the Menu button to move to the next slide, "
+        "or the Ⓑ button to see a menu with other options.");
+    else help +=  "\n\n" + XLAT(
+     "You decide when you want to stop playing with the "
+     "current \"slide\" and go to the next one, by pressing Enter. You can also "
+     "press ESC to see a "
+     "menu with other options.");
+    }
+
+  presentation(pmSlideHelp);
+
+  gotoHelp(help);
   presentation(pmHelpEx);
   }
 
@@ -213,7 +266,18 @@ void return_geometry() {
   gamestack::pop();
   pconf.scale = 1; pconf.alpha = 1;
   presentation(pmGeometryReset);
-  addMessage(XLAT("Returned to your game."));
+  }
+
+EX void return_geometries() {
+  while(gamestack::pushed()) return_geometry();
+  }
+
+EX void stop_tour() {
+  if(!tour::on) return;
+  while(gamestack::pushed()) return_geometry();
+  presentation(pmStop);
+  slide_restore_all();
+  tour::on = false;
   }
 
 EX bool next_slide() {
@@ -221,7 +285,10 @@ EX bool next_slide() {
   popScreenAll();
   if(gamestack::pushed()) {
     return_geometry();
-    if(!(flags & QUICKGEO)) return true;
+    if(!(flags & QUICKGEO)) {
+      addMessage(XLAT("Returned to your game."));
+      return true;
+      }
     }
   if(flags & FINALSLIDE) return true;
   presentation(pmStop);
@@ -232,14 +299,19 @@ EX bool next_slide() {
   return true;
   }
 
-bool handleKeyTour(int sym, int uni) {
+EX bool handleKeyTour(int sym, int uni) {
   if(!tour::on) return false;
   if(!(cmode & sm::DOTOUR)) return false;
   bool inhelp = cmode & sm::HELP;
   flagtype flags = slides[currentslide].flags;
-  if((sym == SDLK_RETURN || sym == SDLK_KP_ENTER) && (!inhelp || (flags & QUICKSKIP)))
+  if(dialog::key_actions.count(sym)) {
+    dialog::key_actions[sym]();
+    return true;
+    }
+  if(sym == SDLK_PAGEDOWN || is_joy_index(sym, deck::key_pagedown)) return next_slide();
+  if((sym == SDLK_RETURN || sym == SDLK_KP_ENTER || is_joy_index(sym, deck::alt_enter)) && (!inhelp || (flags & QUICKSKIP)))
     return next_slide();
-  if(sym == SDLK_BACKSPACE) {
+  if(sym == SDLK_BACKSPACE || sym == SDLK_PAGEUP || is_joy_index(sym, deck::key_pageup)) {
     if(gamestack::pushed()) { 
       gamestack::pop();
       if(!(flags & QUICKGEO)) return true;
@@ -249,7 +321,7 @@ bool handleKeyTour(int sym, int uni) {
     currentslide--;
     presentation(pmStart);
     popScreenAll();
-    if(inhelp || (flags & ALWAYS_TEXT)) slidehelp();
+    if(sym != SDLK_PAGEUP) if(inhelp || (flags & ALWAYS_TEXT)) slidehelp();
     return true;
     }
   int legal = slides[currentslide].flags & 7;
@@ -342,12 +414,12 @@ bool handleKeyTour(int sym, int uni) {
     popScreenAll();
     if(items[itOrbTeleport]) goto give_aether;
     items[itOrbTeleport] = 1;
-    checkmove();
+    checkmove(false);
     if(!canmove) {
       if(items[itOrbAether]) goto give_flash;
       give_aether:
       items[itOrbAether] = 10;
-      checkmove();
+      checkmove(false);
       if(!canmove) {
         give_flash:
         activateFlash();
@@ -438,6 +510,8 @@ EX namespace ss {
     }
   
   EX void slideshow_menu() {
+    cmode = sm::VR_MENU | sm::NOSCR;
+    gamescreen();
     dialog::init(XLAT("slideshows"), forecolor, 150, 100);
     for_all_slideshows([] (string title, slide *sl, char ch) {
       dialog::addBoolItem(title, wts == sl, ch);
@@ -449,6 +523,9 @@ EX namespace ss {
   
   EX void showMenu() {
     if(!wts) wts = slides; 
+
+    cmode = sm::VR_MENU | sm::NOSCR;
+    gamescreen();
 
     dialog::init(XLAT("slides"), forecolor, 150, 100);
     
@@ -553,11 +630,6 @@ EX void start() {
   if(!tour::on) {
     initialize_slides();
     }
-  else {
-    presentation(pmStop);
-    stop_game();
-    firstland = specialland = laIce;
-    }
   restart_game(rg::tour);
   if(tour::on) {
     if(texts) slidehelp();
@@ -591,15 +663,11 @@ EX slide default_slides[] = {
       }
     },
 #endif
-  {"Introduction", 10, LEGAL::NONE | QUICKSKIP,
+  {"Introduction", 10, LEGAL::NONE | QUICKSKIP | TOUR_CONTROLS,
     "This tour is mostly aimed to show what is "
     "special about the geometry used by HyperRogue. "
     "It also shows the basics of gameplay, and "
-    "how is it affected by geometry.\n\n"
-    "You decide when you want to stop playing with the "
-    "current \"slide\" and go to the next one, by pressing Enter. You can also "
-    "press ESC to see a "
-    "menu with other options.",
+    "how is it affected by geometry.",
     [] (presmode mode) {
       if(mode == pmStartAll) firstland = specialland = laIce;
       if(mode == 1) {
@@ -621,6 +689,10 @@ EX slide default_slides[] = {
     "wants -- for example, in this slide, you can press '5' to get "
     "lots of Ice Diamonds quickly.",
     [] (presmode mode) {
+      alt_deck_help(mode,
+        "The game starts in the Icy Lands. Collect the Ice Diamonds "
+        "After you collect many of them, monsters will start to pose a challenge. "
+        "If you are checkmated, the tour menu has some cheats.");
       slidecommand = "gain Ice Diamonds";
       if(mode == 4)
         forCellEx(c2, cwt.at) 
@@ -638,7 +710,7 @@ EX slide default_slides[] = {
     "The world of HyperRogue is tiled with hexagons "
     "and heptagons; heptagons give extra space!\n\n",
     [] (presmode mode) {
-      setCanvas(mode, 'F');
+      setCanvas(mode, &ccolor::football);
       if(mode == 5) {
         cwt.at->move(0)->monst = moRunDog;
         cwt.at->move(1)->monst = moGoblin;
@@ -657,6 +729,9 @@ EX slide default_slides[] = {
     "the surface HyperRogue actually takes place on.",
 #endif
     [] (presmode mode) {
+      alt_deck_help(mode,
+       "The next slide will show a rendering of the surface HyperRogue "
+       "actually takes place on.");
 #if CAP_RUG
       if(mode == 1)
         rug::init();
@@ -700,7 +775,10 @@ EX slide default_slides[] = {
     "running away in a straight line. "
     "Press '2' to try the same in the Euclidean world -- it is impossible.",
     [] (presmode mode) {
-      setCanvas(mode, 'F');
+      alt_deck_help(mode,
+        "You are attacked by two monsters at once. How to solve this?\n\n"
+        "In the Euclidean hex grid it would not be possible! (Use the tour menu to switch to Euclidean to check.)");
+      setCanvas(mode, &ccolor::football);
       if(mode == 5) {
         cwt.at->move(0)->monst = moRunDog;
         cwt.at->move(1)->monst = moGoblin;
@@ -782,6 +860,12 @@ EX slide default_slides[] = {
     "Press '5' to cheat by seeing the smaller circles too.\n\n"
     "Note: Camelot and some other lands are unlocked earlier in the Tutorial than in a real game.",
     [] (presmode mode) {
+      alt_deck_help(mode,
+        "Circles are strange in hyperbolic geometry too. "
+        "Look for the Castle of Camelot in the Crossroads; "
+        "the Round Table inside is a circle of radius 28. "
+        "Finding its center is a difficult challenge."
+        );
       slidecommand = 
         camelotcheat ? XLAT("enable the Camelot cheat")
         : XLAT("disable the Camelot cheat");
@@ -861,7 +945,7 @@ EX slide default_slides[] = {
     "Hyperbolic geometry yields much more interesting periodic patterns "
     "than Euclidean.",
     [] (presmode mode) {
-      setCanvas(mode, 't');
+      setCanvas(mode, &ccolor::zebra_stripes);
       if(mode == 1) 
         patterns::displaycodes = true,
         patterns::whichPattern = patterns::PAT_ZEBRA;
@@ -895,7 +979,7 @@ EX slide default_slides[] = {
     "On the following slide, the colors change smoothly in the whole infinite world. "
     "Again, this works better than in Euclidean geometry.",
     [] (presmode mode) {
-      setCanvas(mode, 'l');
+      setCanvas(mode, &ccolor::landscape);
       SHOWLAND ( l == laCanvas );
       }
     },
@@ -977,6 +1061,9 @@ EX slide default_slides[] = {
     "If you want, press '5' to see it rendered as a spiral, although it takes lots of time and "
     "memory.",
     [] (presmode mode) {
+      alt_deck_help(mode,
+        "The band model. The hyperbolic analog of the Mercator projection of the sphere."
+        );
       static int smart;
       if(mode == 1) pmodel = mdBand, history::create_playerpath(), models::rotation = Id,
         smart = vid.use_smart_range, vid.use_smart_range = 2;
@@ -1019,7 +1106,6 @@ EX slide default_slides[] = {
         resetview();
         }
       if(mode == 3) {
-        shmup::clearMonsters();
         gamestack::pop();
         }    
       }
@@ -1032,6 +1118,9 @@ EX slide default_slides[] = {
     "Have fun exploring!\n\n"
     "Press '5' to leave the tour mode.",
     [] (presmode mode) {
+      alt_deck_help(mode,
+        "This ends our tour. Have fun exploring the rest of HyperRogue world!"
+        );
       slidecommand = XLAT("leave the tour mode");
       if(mode == 4) restart_game(rg::tour);
       }
@@ -1046,5 +1135,50 @@ auto a2 = addHook(hooks_handleKey, 100, handleKeyTour);
 auto a3 = addHook(hooks_nextland, 100, [] (eLand l) { return tour::on ? getNext(l) : laNone; });
 
 EX }
+
+/* these were originally in RogueViz, but useful enough to be moved to main */
+
+EX vector<reaction_t> cleanup;
+
+EX void do_cleanup() {
+  while(!cleanup.empty()) {
+    cleanup.back()();
+    cleanup.pop_back();
+    }
+  }
+
+EX void on_cleanup_or_next(const reaction_t& del) {
+  #if CAP_TOUR
+  if(tour::on) tour::on_restore(del);
+  else
+  #endif
+  cleanup.push_back(del);
+  }
+
+#if HDR
+template<class T> void rv_change(T& variable, const T& value) {
+  T backup = variable;
+  variable = value;
+  on_cleanup_or_next([backup, &variable] { variable = backup; });
+  }
+
+template<class T> void rv_keep(T& variable) {
+  T backup = variable;
+  on_cleanup_or_next([backup, &variable] { variable = backup; });
+  }
+
+template<class T, class U> reaction_t autoclear_hook(hookset<T>& m, int prio, U&& hook) {
+  int p = addHook(m, prio, hook);
+  return [&m, p] { delHook(m, p); };
+  }
+
+template<class T, class U> void rv_hook(hookset<T>& m, int prio, U&& hook) {
+  on_cleanup_or_next(autoclear_hook(m, prio, hook));
+  }
 #endif
+
+int ah_cleanup = addHook(hooks_clearmemory, 500, [] { do_cleanup(); });
+
+#endif
+
 }

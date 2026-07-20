@@ -1,16 +1,24 @@
 # This Makefile works for Mac OS X (El Capitan), MinGW, and Linux.
+# 
+# Environmental vairables:
+#   If you want to build with Glew, set
+#     HYPERROGUE_USE_GLEW=1
+#   If you do not want to use libpng, set
+#     HYPERROGUE_USE_PNG=0
 #
 # For Mac OS X:
-#   Run "brew install sdl" to install SDL in /usr/local.
-#   Run "brew install sdl_gfx".
-#   Run "brew install sdl_mixer".
-#   Run "brew install sdl_ttf".
-#   Run "make" to build HyperRogue as ./hyperrogue.
+#   Run `brew install sdl12-compat sdl_gfx sdl_mixer sdl_ttf`
+#   Run `brew install glew libpng` to install the optional dependencies
+#   Run `make` to build HyperRogue as `./hyperrogue`.
 #
 # For MSYS2 and MinGW-w64:
-#   You might need to run commands such as "pacman -S mingw-w64-x86_64-SDL"
-#   to install SDL and other required libraries.
-#   Run "make" to build HyperRogue as ./hyperrogue.exe.
+#   To install SDL and other required libraries, run these commands
+#   from the MSYS2 shell:
+#       pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-glew
+#       pacman -S mingw-w64-ucrt-x86_64-SDL mingw-w64-ucrt-x86_64-SDL_mixer
+#       pacman -S mingw-w64-ucrt-x86_64-SDL_ttf mingw-w64-ucrt-x86_64-SDL_gfx
+#       pacman -S make
+#   Then run "make" to build HyperRogue as ./hyperrogue.exe.
 #
 # For Ubuntu Linux:
 #   Run "sudo apt-get install libsdl-dev" to install SDL in /usr/local.
@@ -43,7 +51,7 @@ endif
 
 
 ifeq (${OS},linux)
-  CXXFLAGS_EARLY += -DLINUX
+  CXXFLAGS_EARLY += -DLINUX -I /usr/include/SDL
   EXE_EXTENSION :=
   LDFLAGS_GL := -lGL
   LDFLAGS_GLEW := -lGLEW
@@ -54,7 +62,7 @@ ifeq (${OS},linux)
 endif
 
 ifeq (${OS},mingw)
-  CXXFLAGS_EARLY += -DWINDOWS -mwindows -D_A_VOLID=8
+  CXXFLAGS_EARLY += -DWINDOWS -mwindows -D_A_VOLID=8 -I/ucrt64/include/SDL
   EXE_EXTENSION := .exe
   LDFLAGS_GL := -lopengl32
   LDFLAGS_GLEW := -lglew32
@@ -68,9 +76,10 @@ ifeq (${OS},mingw)
 endif
 
 ifeq (${OS},osx)
-  CXXFLAGS_EARLY += -DMAC -I/usr/local/include
+  HOMEBREW_PREFIX := $(shell brew --prefix)
+  CXXFLAGS_EARLY += -DMAC -I$(HOMEBREW_PREFIX)/include -I$(HOMEBREW_PREFIX)/include/SDL
   EXE_EXTENSION :=
-  LDFLAGS_EARLY += -L/usr/local/lib
+  LDFLAGS_EARLY += -L$(HOMEBREW_PREFIX)/lib
   LDFLAGS_GL := -framework AppKit -framework OpenGL
   LDFLAGS_GLEW := -lGLEW
   LDFLAGS_PNG := -lpng
@@ -80,15 +89,15 @@ ifeq (${OS},osx)
 endif
 
 ifeq (${TOOLCHAIN},clang)
-  CXXFLAGS_STD = -std=c++11
+  CXXFLAGS_STD = -std=c++14
   CXXFLAGS_EARLY += -fPIC
   CXXFLAGS_EARLY += -W -Wall -Wextra -Wsuggest-override -pedantic
-  CXXFLAGS_EARLY += -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-maybe-uninitialized -Wno-char-subscripts -Wno-unknown-warning-option
+  CXXFLAGS_EARLY += -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-maybe-uninitialized -Wno-char-subscripts -Wno-unknown-warning-option -Wno-unused-but-set-variable
   CXXFLAGS_EARLY += -Wno-invalid-offsetof
 endif
 
 ifeq (${TOOLCHAIN},gcc)
-  CXXFLAGS_STD = -std=c++11
+  CXXFLAGS_STD = -std=c++14
   CXXFLAGS_EARLY += -fPIC
   CXXFLAGS_EARLY += -W -Wall -Wextra -pedantic
   CXXFLAGS_EARLY += -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-maybe-uninitialized
@@ -96,7 +105,7 @@ ifeq (${TOOLCHAIN},gcc)
 endif
 
 ifeq (${TOOLCHAIN},mingw)
-  CXXFLAGS_STD = -std=c++11
+  CXXFLAGS_STD = -std=c++14
   CXXFLAGS_EARLY += -W -Wall -Wextra
   CXXFLAGS_EARLY += -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-maybe-uninitialized
   CXXFLAGS_EARLY += -Wno-invalid-offsetof
@@ -121,7 +130,7 @@ else
   CXXFLAGS_EARLY += -DCAP_GLEW=0
 endif
 
-ifeq (${HYPERROGUE_USE_PNG},1)
+ifneq (${HYPERROGUE_USE_PNG},0)
   CXXFLAGS_EARLY += -DCAP_PNG=1
   hyper_LDFLAGS += $(LDFLAGS_PNG)
   hyper_OBJS += savepng$(OBJ_EXTENSION)
@@ -132,7 +141,7 @@ endif
 ifeq (${HYPERROGUE_USE_ROGUEVIZ},1)
   # Enable RogueViz. RogueViz requires C++17.
   CXXFLAGS_STD = -std=c++17
-  CXXFLAGS_EARLY += -DCAP_ROGUEVIZ=1
+  CXXFLAGS_EARLY += -DCAP_ROGUEVIZ=1 -DCAP_TEXTURE=1
 endif
 
 
@@ -159,10 +168,10 @@ makeh$(EXE_EXTENSION): makeh.cpp
 	$(CXX) -O2 makeh.cpp -o $@
 
 autohdr.h: makeh$(EXE_EXTENSION) language-data.cpp *.cpp
-	./makeh classes.cpp locations.cpp colors.cpp hyperpoint.cpp geometry.cpp embeddings.cpp goldberg.cpp init.cpp floorshapes.cpp cell.cpp multi.cpp shmup.cpp pattern2.cpp mapeditor.cpp graph.cpp textures.cpp hprint.cpp language.cpp util.cpp complex.cpp multigame.cpp arbitrile.cpp rulegen.cpp *.cpp > autohdr.h
+	./makeh classes.cpp locations.cpp colors.cpp hyperpoint.cpp geometry.cpp embeddings.cpp goldberg.cpp init.cpp floorshapes.cpp cell.cpp multi.cpp shmup.cpp pattern2.cpp mapeditor.cpp graph.cpp textures.cpp hprint.cpp language.cpp util.cpp complex.cpp multigame.cpp backed-map.cpp arbitrile.cpp rulegen.cpp *.cpp > autohdr.h
 
 language-data.cpp: langen$(EXE_EXTENSION)
-	./langen > language-data.cpp
+	./langen -o language-data.cpp
 
 savepng$(OBJ_EXTENSION): savepng.cpp
 	$(CXX) -O2 $(CXXFLAGS) -c savepng.cpp -o $@
@@ -173,7 +182,7 @@ mymake$(EXE_EXTENSION): mymake.cpp
 emscripten: hyper.html
 
 %.html %.js %.wasm: %.emscripten-sources
-	emcc -std=c++11 -O3 -s USE_ZLIB=1 -s LEGACY_GL_EMULATION=1 -s TOTAL_MEMORY=128MB hyperweb.cpp -o hyper.html
+	emcc -std=c++14 -O3 -s USE_ZLIB=1 -s LEGACY_GL_EMULATION=1 -s TOTAL_MEMORY=128MB hyperweb.cpp -o hyper.html
 
 hyper.emscripten-sources: *.cpp autohdr.h
 

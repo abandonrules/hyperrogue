@@ -13,7 +13,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # os: [ubuntu-latest, macos-latest]
+        # macos is broken for now
+        os: [ubuntu-latest]
         compiler: [gcc, clang]
         build_system: [makefile, mymake]
         hyper_use_rviz: [rviz_1, rviz_0]
@@ -71,13 +73,15 @@ jobs:
     - name: Do a simple test
       run: .github/workflows/test_simple.sh
 
-  emscripten:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: |
-        docker run --rm -v $(pwd):/src trzeci/emscripten make emscripten
-    - name: Do a simple test
-      run: |
-        ls -lAF hyper.html hyper.js hyper.wasm
+# broken for now
+
+#  emscripten:
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v2
+#    - name: Build
+#     run: |
+#        docker run --rm -v $(pwd):/src trzeci/emscripten make emscripten
+#    - name: Do a simple test
+#      run: |
+#        ls -lAF hyper.html hyper.js hyper.wasm

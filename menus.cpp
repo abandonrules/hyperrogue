@@ -21,9 +21,11 @@ int PREC(ld x) {
   return int(shiftmul * x);
   }
 
+EX int lands_per_page = 24;
+
 EX void showOverview() {
-  cmode = sm::ZOOMABLE | sm::OVERVIEW;  
-  DEBBI(DF_GRAPH, ("show overview"));
+  cmode = sm::ZOOMABLE | sm::OVERVIEW;
+  indenter_finish dif(debug_graph, "show overview");
 
   if(dialog::infix != "")
     mouseovers = dialog::infix;
@@ -41,14 +43,14 @@ EX void showOverview() {
       mouseovers += XLAT(" Hell: %1/%2", its(orbsUnlocked()), its(lands_for_hell()));
     }
   
-  bool pages = false;
-  
   {
   dynamicval<int> ds(dual::state, dual::state ? 2 : 0);
   generateLandList(isLandIngame);
   }
   
   bool not_in_game = false;
+
+  auto displayed_landlist = landlist;
   
   if(dialog::infix != "") {
     auto land_matches = [] (eLand l) {
@@ -63,20 +65,21 @@ EX void showOverview() {
     vector<eLand> filtered;
     for(eLand l: landlist) if(land_matches(l)) filtered.push_back(l);
     if(filtered.size())
-      landlist = filtered;
+      displayed_landlist = filtered;
     else {
       for(int i=0; i<landtypes; i++) if(land_matches(eLand(i))) filtered.push_back(eLand(i));
-      if(filtered.size()) landlist = filtered, not_in_game = true;
+      if(filtered.size()) displayed_landlist = filtered, not_in_game = true;
       }
     }
-  
-  int nl = isize(landlist), nlm;
+
+  int nl = isize(displayed_landlist), nlm;
   
   int lstart = 0;
-  
-  if(nl > 30) {
-    pages = true;
-    lstart += dialog::handlePage(nl, nlm, (nl+1)/2);
+
+  int numpages = (nl-1) / lands_per_page + 1;
+
+  if(numpages > 1) {
+    lstart += dialog::handlePage(nl, nlm, lands_per_page, numpages);
     }
   else nlm = nl;
   
@@ -92,7 +95,7 @@ EX void showOverview() {
     }
   
   for(int i=0; i<nl; i++) {
-    eLand l = landlist[lstart + i];
+    eLand l = displayed_landlist[lstart + i];
     int xr = vid.xres / 64;
     int i0 = 56 + vid.fsize + i * vf;
     color_t col;
@@ -101,24 +104,26 @@ EX void showOverview() {
       displayfrZ(1, i0, 1, vf-4, "*", forecolor, 0);
     if(displayfrZH(xr*1, i0, 1, vf-4, XLAT1(linf[l].name), col, 0))
       getcstat = 1000 + l;
+    int c8 = (vf+2)/3;
     eItem it = treasureType(l);
     int lv = items[it] * landMultiplier(l);
-    if(lv >= 25) col = 0xFFD500;
-    else if(lv && it == itSavedPrincess) col = 0xFFD500;
-    else if(lv >= 10) col = 0x00D500;
-    else if(items[it]) col = 0xC0C0C0;
-    else col = BLACKISH;
-    int c8 = (vf+2)/3;
-    if(displayfrZH(xr*24-c8*6, i0, 1, vf-4, (required_for_hyperstones(it) ? "" : "*") + its(items[it]), col, 16))
-      getcstat = 2000+it;
-    if(!cheater)
-    if(displayfrZH(xr*24, i0, 1, vf-4, its(hiitems[modecode()][it]), col, 16))
-      getcstat = 2000+it;
-    if(items[it]) col = iinf[it].color; else col = BLACKISH;
-    if(displayfrZH(xr*24+c8*4, i0, 1, vf-4, s0 + iinf[it].glyph, col, 16))
-      getcstat = 2000+it;
-    if(displayfrZH(xr*24+c8*5, i0, 1, vf-4, XLAT1(iinf[it].name), col, 0))
-      getcstat = 2000+it;
+    if(it) {
+      if(lv >= 25) col = 0xFFD500;
+      else if(lv && it == itSavedPrincess) col = 0xFFD500;
+      else if(lv >= 10) col = 0x00D500;
+      else if(items[it]) col = 0xC0C0C0;
+      else col = BLACKISH;
+      if(displayfrZH(xr*24-c8*6, i0, 1, vf-4, (required_for_hyperstones(it) ? "" : "*") + its(items[it]), col, 16))
+        getcstat = 2000+it;
+      if(!cheater)
+      if(displayfrZH(xr*24, i0, 1, vf-4, its(hiitems[modecode()][it]), col, 16))
+        getcstat = 2000+it;
+      if(items[it]) col = iinf[it].color; else col = BLACKISH;
+      if(displayfrZH(xr*24+c8*4, i0, 1, vf-4, s0 + iinf[it].glyph, col, 16))
+        getcstat = 2000+it;
+      if(displayfrZH(xr*24+c8*5, i0, 1, vf-4, XLAT1(iinf[it].name), col, 0))
+        getcstat = 2000+it;
+      }
     eItem io = nativeOrbType(l);
     if(io == itShard) {
       if(items[it] >= 10) col = winf[waMirror].color; else col = BLACKISH;
@@ -147,9 +152,9 @@ EX void showOverview() {
       }
     }
 
-  dialog::displayPageButtons(3, pages);
+  dialog::display_bottom_buttons(numpages, dialog::DB_BACK | dialog::DB_HELP);
   
-  keyhandler = [] (int sym, int uni) {
+  keyhandler = [numpages] (int sym, int uni) {
     int umod = uni % 1000;
     int udiv = uni / 1000;
     if(udiv == 1 && umod < landtypes) {
@@ -179,11 +184,23 @@ EX void showOverview() {
       }
     else if(udiv == 2 && umod < ittypes) {
       gotoHelp(generateHelpForItem(eItem(umod)));
+      help_extensions.push_back(help_extension{'p', glyphpinned[umod] ? XLAT("unpin from HUD") : XLAT("pin to HUD"), [umod] () {
+        if(glyphpinned[umod]) {
+          revglyphpinned.erase(std::remove_if(revglyphpinned.begin(), revglyphpinned.end(), [umod] (int x) { return x == umod; }), revglyphpinned.end());
+          glyphpinned[umod] = 0;
+          }
+        else {
+          revglyphpinned.push_back(umod);
+          glyphpinned[umod] = revglyphpinned.size();
+          }
+        updatepinnedglyphs();
+        popScreen();
+        }});
       if(cheater) {
         dialog::helpToEdit(items[umod], 0, 200, 10, 10);
         dialog::get_ne().reaction = [] () {
           if(hardcore) canmove = true;
-          else checkmove();
+          else checkmove(false);
           cheater++;
           };
         dialog::bound_low(0);
@@ -201,8 +218,8 @@ EX void showOverview() {
       "Cheaters can click to move between lands, and use the "
       "mousewheel to gain or lose treasures and orbs quickly (Ctrl = precise, Shift = reverse)."
       );
-    else if(dialog::handlePageButtons(uni)) ;
-    else if(dialog::editInfix(uni)) dialog::list_skip = 0;
+    else if(dialog::handlePageButtons(sym, uni, true, numpages)) ;
+    else if(dialog::editInfix(sym, uni)) dialog::list_skip = 0;
     else if(doexiton(sym, uni)) popScreen();
     };
   }
@@ -276,13 +293,17 @@ EX void enable_cheat() {
   
 // -- game modes -- 
 
-EX void switchHardcore() {
+EX void switchHardcore_quiet() {
   if(hardcore && !canmove) { 
-    restart_game();
+    if(delayed_start) stop_game(); else restart_game();
     hardcore = false;
     }
   else if(hardcore && canmove) { hardcore = false; }
   else { hardcore = true; canmove = true; hardcoreAt = turncount; }
+  }
+
+EX void switchHardcore() {
+  switchHardcore_quiet();
   if(hardcore)
       addMessage(XLAT("One wrong move and it is game over!"));
   else
@@ -318,7 +339,7 @@ EX void showCreative() {
     dialog::cheat_if_confirmed([] {
       cheater++;
       pushScreen(mapeditor::showMapEditor);
-      lastexplore = turncount;
+      update_lastexplore();
       addMessage(XLAT("You activate your terraforming powers!"));
       });
     });
@@ -338,10 +359,12 @@ EX void showCreative() {
   dialog::addItem(XLAT("drawing tool"), 'd');
   dialog::add_action([] {
     dialog::cheat_if_confirmed([] {
+      cheater++;
       mapeditor::drawing_tool = true;
       mapeditor::intexture = false;
       pushScreen(mapeditor::showDrawEditor);
       mapeditor::initdraw(cwt.at);
+      addMessage(XLAT("You activate your imagination powers!"));
       });
     });
 #endif
@@ -374,6 +397,9 @@ EX void showCreative() {
     }
 #endif
 
+  dialog::addItem(XLAT("line patterns"), 'l');
+  dialog::add_action_push(linepatterns::showMenu);
+
 //  dialog::addBoolItem(XLAT("expansion"), viewdists, 'x');
   
   dialog::addBreak(50);
@@ -381,17 +407,54 @@ EX void showCreative() {
   dialog::display();
   }
 
+EX void show_achievement_eligibility() {
+  #if CAP_ACHIEVE
+  dialog::addBreak(100);
+  dialog::addInfo(XLAT("achievement/leaderboard eligiblity:"), 0xFF8000);
+  if(!wrongMode(0)) {
+    if(inv::on || bow::crossbow_mode()) dialog::addInfo(XLAT("eligible for most -- leaderboards separate"), 0x80FF00);
+    else dialog::addInfo(XLAT("eligible for most"), 0x00FF00);
+    }
+  else if(!wrongMode(rg::racing))
+    dialog::addInfo(XLAT("eligible for racing"), 0xFFFF00);
+  else if(!wrongMode(rg::shmup))
+    dialog::addInfo(XLAT("eligible for shmup"), 0xFFFF00);
+  else if(!wrongMode(rg::multi))
+    dialog::addInfo(XLAT("eligible for multiplayer"), 0xFFFF00);
+  else if(!wrongMode(rg::chaos))
+    dialog::addInfo(XLAT("eligible for Chaos mode"), 0xFFFF00);
+  else if(!wrongMode(rg::princess))
+    dialog::addInfo(XLAT("eligible for Princess Challenge"), 0xFFFF00);
+  else if(!wrongMode(specgeom_heptagonal()))
+    dialog::addInfo(XLAT("eligible for heptagonal"), 0xFFFF00);
+  else if(!wrongMode(any_specgeom())) /* the player probably knows what they are aiming at */
+    dialog::addInfo(XLAT("eligible for special geometry"), 0xFFFF00);
+  #if CAP_DAILY
+  else if(daily::on && !daily::historical)
+    dialog::addInfo(XLAT("eligible for Strange Challenge"), 0xFFFF00);
+  #endif
+  else if(cheater) dialog::addInfo(XLAT("disabled in cheat mode"), 0xC00000);
+  else if(casual) dialog::addInfo(XLAT("disabled in casual mode"), 0xC00000);
+  else if(ineligible_starting_land)
+    dialog::addInfo(XLAT("this starting land is not eligible for achievements"), 0xC00000);
+  else
+    dialog::addInfo(XLAT("not eligible due to current mode settings"), 0XC00000);
+  #else
+  dialog::addInfo(XLAT("no achievements/leaderboards in this version"), 0XFF8000);
+  #endif
+  }
+
 EX void show_chaos() {
   cmode = sm::SIDE | sm::MAYDARK;
   gamescreen();
   dialog::init(XLAT("land structure"));
-  chaosUnlocked = chaosUnlocked || autocheat;
+  chaosUnlocked = chaosUnlocked || unlock_all || autocheat;
 
   dialog::addHelp(
-    "In the Chaos mode, lands change very often, and "
+    XLAT("In the Chaos mode, lands change very often, and "
     "there are no walls between them. "
     "Some lands are incompatible with this."
-    "\n\nYou need to reach Crossroads IV to unlock the Chaos mode."
+    "\n\nYou need to reach Crossroads IV to unlock the Chaos mode.")
     );
   
   dialog::addBreak(100);
@@ -420,31 +483,90 @@ EX void show_chaos() {
   dialog::addSelItem(XLAT("land"), XLAT1(linf[specialland].name), 'l');
   dialog::add_action(activate_ge_land_selection);
 
-  dialog::addBreak(100);
-  if(ineligible_starting_land)
-    dialog::addInfo("this starting land is not eligible for achievements");
-  else if(land_structure == lsNiceWalls)
-    dialog::addInfo("eligible for most achievements");
-  else if(land_structure == lsChaos)
-    dialog::addInfo("eligible for Chaos mode achievements");
-  else if(land_structure == lsSingle)
-    dialog::addInfo("eligible for special achievements");
-  else
-    dialog::addInfo("not eligible for achievements");
-  if(cheater) dialog::addInfo("(but the cheat mode is on)");
-  if(casual) dialog::addInfo("(but the casual mode is on)");
+  show_achievement_eligibility();
 
   dialog::addBreak(100);
   if(ls::horodisk_structure())
     add_edit(horodisk_from);
   else if(land_structure == lsChaosRW)
     add_edit(randomwalk_size);
+  else if(land_structure == lsLandscape)
+    add_edit(landscape_div);
+  else if(land_structure == lsCursedWalls)
+    add_edit(curse_percentage);
   else
     dialog::addBreak(100);
   dialog::addBack();
   dialog::display();
   }
 
+EX string custom_welcome;
+
+string customfile = "custom.hrm";
+
+string name_to_edit;
+
+EX void show_custom() {
+  cmode = sm::SIDE | sm::MAYDARK;
+  gamescreen();
+  dialog::init(XLAT("custom mode"));
+
+  list_saved_custom_modes();
+  dialog::addBreak(100);
+  if(custom_welcome != "") {
+    dialog::addInfo("custom welcome message:");
+    dialog::addInfo(custom_welcome);
+    dialog::addItem("edit", '/');
+    }
+  else {
+    dialog::addItem("custom welcome message", '/');
+    }
+  dialog::add_action([] () {
+    dialog::edit_string(custom_welcome, "custom welcome message", "");
+    });
+  dialog::addBreak(100);
+  auto m = at_or_null(modename, current_modecode);
+  dialog::addSelItem("name custom mode", m ? *m : "", 'N');
+  dialog::add_action([] {
+    modecode();
+    name_to_edit = modename[current_modecode];
+    dialog::edit_string(name_to_edit, "name custom mode", "");
+    dialog::get_di().reaction_final = [] { update_modename(name_to_edit); };
+    });
+
+  dialog::addItem("save custom mode", 'S');
+  dialog::add_action([] {
+    dialog::openFileDialog(customfile, XLAT("file to save:"), ".hrm", [] () {
+      try {
+        save_mode_to_file(customfile);
+        addMessage(XLAT("Mode saved to %1", customfile));
+        return true;
+        }
+      catch(hstream_exception& e) {
+        addMessage(XLAT("Failed to save mode to %1", customfile));
+        return false;
+        }
+      });
+    });
+  dialog::addItem("load custom mode", 'L');
+  dialog::add_action([] {
+    dialog::openFileDialog(customfile, XLAT("file to load:"), ".hrm", [] () {
+      try {
+        load_mode_from_file(customfile);
+        addMessage(XLAT("Loaded mode from %1", customfile));
+        return true;
+        }
+      catch(hstream_exception& e) {
+        addMessage(XLAT("Failed to load mode from %1", customfile));
+        return false;
+        }
+      });
+    });
+  dialog::addBack();
+  dialog::display();
+  }
+
+#ifndef RVCOL
 EX void mode_higlights() {
   cmode = sm::NOSCR;
   gamescreen();
@@ -610,7 +732,8 @@ EX void mode_higlights() {
   dialog::addBreak(100);
   dialog::addBack();
   dialog::display();
-  }  
+  }
+#endif
 
 EX eLandStructure default_land_structure() {
   if(closed_or_bounded) return lsSingle;
@@ -621,7 +744,7 @@ EX eLandStructure default_land_structure() {
   return lsNoWalls;
   }
 
-EX void menuitem_land_structure(char key) {
+EX void menuitem_land_structure(key_type key) {
 
   if(default_land_structure() == land_structure && !ineligible_starting_land)
     dialog::addBoolItem(XLAT("land structure"), false, key);
@@ -660,6 +783,9 @@ EX void showChangeMode() {
   multi::cpid = 0;
   menuitem_land_structure('l');
 
+  dialog::addBoolItem(XLAT("custom land list"), use_custom_land_list, 'L');
+  dialog::add_action_push(customize_land_list);
+
   dialog::addBoolItem(XLAT("weapon selection"), bow::weapon, 'b');
   dialog::add_action_push(bow::showMenu);
 
@@ -697,7 +823,7 @@ EX void showChangeMode() {
 #endif
   dialog::addBoolItem(XLAT("%1 Challenge", moPrincess), (princess::challenge), 'P');
   dialog::add_action_confirmed([] {
-    if(!princess::everSaved)
+    if(!princess::everSaved && !autocheat && !unlock_all)
       addMessage(XLAT("Save %the1 first to unlock this challenge!", moPrincess));
     else restart_game(rg::princess);
     });  
@@ -707,8 +833,9 @@ EX void showChangeMode() {
   dialog::addBoolItem(XLAT("Yendor Challenge"), (yendor::on), 'y');
   dialog::add_action([] {
     clearMessages();
-    if(yendor::everwon || autocheat)
+    if(yendor::everwon || autocheat || unlock_all)
       pushScreen(yendor::showMenu);
+    else if(yendor::on) restart_game(rg::yendor);
     else gotoHelp(yendor::chelp);
     });
 #if CAP_RACING
@@ -716,11 +843,15 @@ EX void showChangeMode() {
   dialog::add_action(racing::configure_race);
 #endif  
 
-  dialog::addBreak(50);
+  show_achievement_eligibility();
 
+  dialog::addBreak(50);
+  #ifndef RVCOL
   dialog::addItem(XLAT("highlights & achievements"), 'h');
   dialog::add_action_push(mode_higlights);
-  
+  #endif
+  dialog::addItem(XLAT("custom mode manager"), 'm');
+  dialog::add_action(prepare_custom);
   dialog::addBack();
   dialog::display();  
   }
@@ -737,21 +868,30 @@ EX bool showHalloween() {
   return false;
   }
 
+EX bool showFestive() {
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+  int month = tm.tm_mon + 1;
+  int day = tm.tm_mday;
+  if(month == 12 && day >= 24 && day <= 26) return true;
+  return false;
+  }
+
 int daily_mode;
 
 void announce_random() {
   dialog::addBreak(100);
-  dialog::addTitle("(random option)", 0x808080, 50);
+  dialog::addTitle("(random option)", 0x808080, 100);
   }
 
 void announce_nothing() {
   dialog::addBreak(100);
-  dialog::addTitle("", 0x808080, 50);
+  dialog::addTitle("", 0x808080, 100);
   }
 
 void announce_seasonal() {
   dialog::addBreak(100);
-  dialog::addTitle("(seasonal option)", 0x808080, 50);
+  dialog::addTitle("(seasonal option)", 0x808080, 100);
   }
 
 EX void showStartMenu() {
@@ -921,7 +1061,7 @@ EX void showStartMenu() {
       stop_game();
       enable_canvas();
       cheater = true;
-      patterns::canvasback = 0xFFFFFF;
+      ccolor::set_plain_nowall(0xFFFFFF);
       mapeditor::drawplayer = false;
       start_game();
       clearMessages();
@@ -1075,7 +1215,8 @@ EX named_functionality get_o_key() {
   if(isize(res) == 1) return res[0];
   
   return named_dialog(res[0].first + "/...", [res] {
-    emptyscreen();
+    cmode = sm::VR_MENU | sm::NOSCR;
+    gamescreen();
     dialog::init();
     char id = 'o';
     for(auto& r: res) {
@@ -1115,7 +1256,7 @@ EX string gettimestamp(msginfo& m) {
   }
   
 EX void showMessageLog() {
-  DEBBI(DF_GRAPH, ("show message log"));
+  indenter_finish dif(debug_graph, "showMessageLog");
 
   int lines = vid.yres / vid.fsize - 2;
   int maxpos = isize(gamelog) - lines;
@@ -1163,6 +1304,10 @@ int read_menu_args() {
     }
   else if(argis("-d:mode")) {
     PHASEFROM(2); launch_dialog(showChangeMode);
+    }
+  else if(argis("-d:custom")) {
+    PHASEFROM(3);
+    prepare_custom();
     }
   else if(argis("-d:history")) {
     PHASEFROM(2); launch_dialog(history::history_menu);

@@ -35,6 +35,9 @@ struct embset {
   string name;
   geom3::eSpatialEmbedding se;
   ld walls, scale, depth, eye, sun, sky, star;
+  embset(const string& n, geom3::eSpatialEmbedding se, ld walls, ld scale, ld depth, ld eye, ld sun, ld sky, ld star) :
+    name(n), se(se), walls(walls), scale(scale), depth(depth), eye(eye), sun(sun), sky(sky), star(star) {}
+  embset() {}
   };
 
 embset current() {
@@ -94,30 +97,30 @@ void print(hstream& hs, const embset& e) {
   print(hlog, "embset{.name=\"", e.name, "\", .se=eEmbeddingMethod(", int(e.se), "), .walls=", e.walls, ", .scale=", e.scale, ", .depth=", e.depth, ", .eye=", e.eye, ", .sun=", e.sun, ", .sky=", e.sky, ", .star=", e.star, "}");
   }
 
-embset edefault = embset{.name="default", .se=geom3::seDefault, .walls=1.2, .scale=0, .depth=0, .eye=1.5, .sun=0.333333, .sky=10, .star=9};
-embset edefaulti = embset{.name="default", .se=geom3::seDefault, .walls=-1.2, .scale=0, .depth=0, .eye=-1.5, .sun=0.333333, .sky=10, .star=9};
+embset edefault = embset("default", geom3::seDefault, 1.2, 0, 0, 1.5, 0.333333, 10, 9);
+embset edefaulti = embset("default", geom3::seDefault, -1.2, 0, 0, 1.5, 0.333333, 10, 9);
 // embset eincyl = embset{.name="in cylinder", .se=geom3::seCylinderE, .walls=0.75, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=4, .star=3.6};
-embset eincyl = embset{.name="in cylinder E", .se=geom3::seCylinderE, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset eoutcyl = embset{.name="out cylinder E", .se=geom3::seCylinderE, .walls=-1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.3, .sky=10, .star=9};
-embset eouthoro = embset{.name="out horosphere", .se=geom3::seLowerCurvature, .walls=1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=8, .star=7.5};
-embset einhoro = embset{.name="in horosphere", .se=geom3::seLowerCurvature, .walls=-1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=12, .star=11};
-embset einhoro_small = embset{.name="in horosphere (small sky)", .se=geom3::seLowerCurvature, .walls=-1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=18, .star=17};
-embset esolv = embset{.name="solv", .se=geom3::seSol, .walls=1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=12, .star=11};
-embset einnih = embset{.name="in NIH", .se=geom3::seNIH, .walls=-1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=12, .star=11};
-embset eoutnih = embset{.name="out NIH", .se=geom3::seNIH, .walls=1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=8, .star=7.5};
-embset eclifford = embset{.name="Clifford", .se=geom3::seCliffordTorus, .walls=1.2, .scale=M_PI/10, .depth=-0.0561826, .eye=1.5, .sun=0.25, .sky=2.55, .star=2.3};
-embset enil = embset{.name="Nil flat", .se=geom3::seNil, .walls=1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=12, .star=11};
-embset esl2 = embset{.name="SL(2,R) flat", .se=geom3::seSL2, .walls=1.2, .scale=0.1, .depth=0, .eye=1.5, .sun=0.25, .sky=12, .star=11};
-embset eincylh = embset{.name="in cylinderH", .se=geom3::seCylinderH, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset eincylhe = embset{.name="in cylinderHE", .se=geom3::seCylinderHE, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset eincylnil = embset{.name="in cylinder Nil", .se=geom3::seCylinderNil, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset eincylsl = embset{.name="in cylinder SL(2,R)", .se=geom3::seCylinderSL2, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset einhorocyl = embset{.name="in horocylinder", .se=geom3::seCylinderHoro, .walls=-1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=8, .star=7.5};
-embset eouthorocyl = embset{.name="out horocylinder", .se=geom3::seCylinderHoro, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=4, .star=3.5};
-embset eprodh_flat = embset{.name="hyperbolic product (flat)", .se=geom3::seProductH, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset eprodh_concave = embset{.name="hyperbolic product (concave)", .se=geom3::seProductH, .walls=1.2, .scale=M_PI/10, .depth=1, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset eprods_flat = embset{.name="spherical product (flat)", .se=geom3::seProductS, .walls=1.2, .scale=M_PI/10, .depth=0, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
-embset eprods_concave = embset{.name="spherical product (concave)", .se=geom3::seProductS, .walls=1.2, .scale=M_PI/10, .depth=0.8333, .eye=1.5, .sun=0.10472, .sky=2.6, .star=2.4};
+embset eincyl = embset("in cylinder E", geom3::seCylinderE, 1.2, M_PI/10, 0, 1.5, 0.10472, 2.6, 2.4);
+embset eoutcyl = embset("out cylinder E", geom3::seCylinderE, -1.2, M_PI/10, 0, 1.5, 0.3, 10, 9);
+embset eouthoro = embset("out horosphere", geom3::seLowerCurvature, 1.2, 0.1, 0, 1.5, 0.25, 8, 7.5);
+embset einhoro = embset("in horosphere", geom3::seLowerCurvature, -1.2, 0.1, 0, 1.5, 0.25, 12, 11);
+embset einhoro_small = embset("in horosphere (small sky)", geom3::seLowerCurvature, -1.2, 0.1, 0, 1.5, 0.25, 18, 17);
+embset esolv = embset("solv", geom3::seSol, 1.2, 0.1, 0, 1.5, 0.25, 12, 11);
+embset einnih = embset("in NIH", geom3::seNIH, -1.2, 0.1, 0, 1.5, 0.25, 12, 11);
+embset eoutnih = embset("out NIH", geom3::seNIH, 1.2, 0.1, 0, 1.5, 0.25, 8, 7.5);
+embset eclifford = embset("Clifford", geom3::seCliffordTorus, 1.2, M_PI/10, -0.0561826, 1.5, 0.25, 2.55, 2.3);
+embset enil = embset("Nil flat", geom3::seNil, 1.2, 0.1, 0, 1.5, 0.25, 12, 11);
+embset esl2 = embset("SL(2,R) flat", geom3::seSL2, 1.2, 0.1, 0, 1.5, 0.25, 12, 11);
+embset eincylh = embset("in cylinderH", geom3::seCylinderH, 1.2, M_PI/10, 0, 1.5, 0.10472, 2.6, 2.4);
+embset eincylhe = embset("in cylinderHE", geom3::seCylinderHE, 1.2, M_PI/10, 0, 1.5, 0.10472, 2.6, 2.4);
+embset eincylnil = embset("in cylinder Nil", geom3::seCylinderNil, 1.2, M_PI/10, 0, 1.5, 0.10472, 2.6, 2.4);
+embset eincylsl = embset("in cylinder SL(2,R)", geom3::seCylinderSL2, 1.2, M_PI/10, 0, 1.5, 0.10472, 2.6, 2.4);
+embset einhorocyl = embset("in horocylinder", geom3::seCylinderHoro, -1.2, M_PI/10, 0, 1.5, 0.10472, 8, 7.5);
+embset eouthorocyl = embset("out horocylinder", geom3::seCylinderHoro, 1.2, M_PI/10, 0, 1.5, 0.10472, 4, 3.5);
+embset eprodh_flat = embset("hyperbolic product (flat)", geom3::seProductH, 1.2, M_PI/10, 0, 1.5, 0.10472, 2.6, 2.4);
+embset eprodh_concave = embset("hyperbolic product (concave)", geom3::seProductH, 1.2, M_PI/10, 1, 1.5, 0.10472, 2.6, 2.4);
+embset eprods_flat = embset("spherical product (flat)", geom3::seProductS, 1.2, M_PI/10, 0, 1.5, 0.10472, 2.6, 2.4);
+embset eprods_concave = embset("spherical product (concave)", geom3::seProductS, 1.2, M_PI/10, 0.8333, 1.5, 0.10472, 2.6, 2.4);
 
 embset& edok() { return vid.wall_height > 0 ? edefault : edefaulti; }
 
@@ -462,7 +465,7 @@ struct lilymodel : public model {
     h[0] += 0.67; h[1] -= 0.36; 
     h[0] *= 5;
     h[1] *= 5;
-    h[2] = lerp(cgi.LAKE, cgi.FLOOR, ilerp(0.018, -0.0496, h[2]) * hmul);
+    h[2] = lerp(cgi.WATERLEVEL, cgi.FLOOR, ilerp(0.018, -0.0496, h[2]) * hmul);
     if(GDIM == 3) h = cgi.emb->logical_to_actual(h);
     else h[2] = 1;
     return h;
@@ -476,7 +479,7 @@ struct duckmodel : public model {
   hyperpoint transform(hyperpoint h) override { 
     h = cspin90(1, 2) * h;
     h[0] += 3.8; h[1] -= 2;
-    h[2] = lerp(cgi.LAKE, cgi.FLOOR, ilerp(0.056, -0.408, h[2]) * hmul * 1.5);
+    h[2] = lerp(cgi.WATERLEVEL, cgi.FLOOR, ilerp(0.056, -0.408, h[2]) * hmul * 1.5);
     if(GDIM == 3) h = cgi.emb->logical_to_actual(h);
     else h[2] = 1;
     return h;
@@ -1027,16 +1030,16 @@ bool chess_ceiling(celldrawer *cw) {
     color_t wcol1 = (gradient(0, domcol, 0, .9, 1) << 8) | 0xFF;
     color_t wcol2 = (gradient(0, domcol, 0, .8, 1) << 8) | 0xFF;
     if(house1.count(cw->c)) forCellIdEx(c2, i, cw->c) if(!house1.count(c2)) {
-      placeSidewall(cw->c, i, SIDE_HIGH, cw->V, (i&1)?wcol1:wcol2); 
-      placeSidewall(cw->c, i, SIDE_HIGH2, cw->V, (i&1)?wcol1:wcol2); 
+      placeSidewall(cw->c, i, SIDE::HIGH, cw->V, (i&1)?wcol1:wcol2);
+      placeSidewall(cw->c, i, SIDE::HIGH2, cw->V, (i&1)?wcol1:wcol2);
       }
     forCellIdEx(c2, i, cw->c) if(!house2.count(c2)) {
-      placeSidewall(cw->c, i, SIDE_HIGH2, cw->V, (i&1)?wcol1:wcol2); 
+      placeSidewall(cw->c, i, SIDE::HIGH2, cw->V, (i&1)?wcol1:wcol2);
       }
     if(house1.count(cw->c) != house2.count(cw->c))
-      draw_shapevec(cw->c, cw->V, qfi.fshape->levels[SIDE_HIGH], col, PPR::REDWALL);
+      draw_shapevec(cw->c, cw->V, qfi.fshape->levels[SIDE::HIGH], col, PPR::RED1_TOP);
     if(house2.count(cw->c))
-      draw_shapevec(cw->c, cw->V, qfi.fshape->levels[SIDE_HIGH2], (domroof << 8) | 0xFF, PPR::REDWALL);
+      draw_shapevec(cw->c, cw->V, qfi.fshape->levels[SIDE::HIGH2], (domroof << 8) | 0xFF, PPR::RED1_TOP);
 
     auto co = euc::full_coords2(cw->c);
     int x = gmod(co.first, 20);
@@ -1044,7 +1047,7 @@ bool chess_ceiling(celldrawer *cw) {
     char ch = xmap[y][x];
 
     if(ch == 'O') {
-      placeSidewall(cw->c, 1, SIDE_HIGH, cw->V, 0xC0E0FFC0);
+      placeSidewall(cw->c, 1, SIDE::HIGH, cw->V, 0xC0E0FFC0);
       ((dqi_poly&)(*ptds.back())).tinf = nullptr;
       }
     }
@@ -1494,7 +1497,7 @@ void geodesic_screen(tour::presmode mode, int id) {
   static hyperpoint start, middle, target, nlh, nlh1, nlh2;
   const ld coord = 10;
   
-  setCanvas(mode, '0');
+  setWhiteCanvas(mode);
   if(mode == pmStart) {
     slide_backup(pmodel);
     slide_backup(pconf.clip_min);
@@ -1683,7 +1686,7 @@ slide embchess_slides[] = {
    "to access various options. The next slides are slides from that video.\n\n",
 
   [] (presmode mode) {
-    setCanvas(mode, '0');
+    setWhiteCanvas(mode);
     slide_url(mode, 'y', "YouTube link", "https://youtu.be/Rhjv_PazzZE");
     slide_action(mode, 'a', "activate / configure", act_or_config);
     if(mode == pmKey) act_or_config();
@@ -1811,8 +1814,8 @@ auto embchess_ah =
   ;
 
 auto embchess_show =
-  addHook_slideshows(100, [] (tour::ss::slideshow_callback cb) {
-    cb(XLAT("non-Euclidean third dimension"), &embchess_slides[0], '3');
+  addHook_slideshows(40, [] (tour::ss::slideshow_callback cb) {
+    cb(XLAT("Non-Euclidean Third Dimension"), &embchess_slides[0], '3');
     });
 
 }

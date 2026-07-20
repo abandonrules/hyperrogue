@@ -1,3 +1,6 @@
+// Nil Rider level data
+// Copyright (C) 2022-2025 Zeno Rogue, see '../../hyper.cpp' for details
+
 namespace nilrider {
 
 const int steps_per_block = 16;
@@ -7,6 +10,8 @@ void level::init_textures() {
   create_castle();
   int tY = isize(map_tiles);
   int tX = isize(map_tiles[0]);
+  int ttY = next_p2(tY);
+  int ttX = next_p2(tX);
 
   transmatrix T = gpushxto0(new_levellines_for);
 
@@ -24,8 +29,8 @@ void level::init_textures() {
     auto& tex = *target;
 
     if(regen) {
-      tex.twidth = tex.tx = tX * texture_density;
-      tex.theight = tex.ty = tY * texture_density;
+      tex.twidth = tex.tx = ttX * texture_density;
+      tex.theight = tex.ty = ttY * texture_density;
       tex.stretched = false;
       tex.strx = tex.tx;
       tex.stry = tex.ty;
@@ -54,7 +59,7 @@ void level::init_textures() {
         col = bcols[c];
         if(levels && new_levellines_for[3]) {
           hyperpoint h = T * mappt(x, y, texture_density);
-          ld z = h[2] - sym_to_used_bonus(h);
+          ld z = h[2] - nilv::convert_bonus(h, nilv::nmSym, nilv::model_used);
           if(z > 0) col = gradient(col, 0xFFFF0000, 0, z - floor(z), 4);
           if(z < 0) col = gradient(col, 0xFF0000FF, 0, -z - floor(-z), 4);
           }
@@ -99,6 +104,8 @@ void level::init_shapes() {
   
   int tY = isize(map_tiles);
   int tX = isize(map_tiles[0]);
+  int ttY = next_p2(tY);
+  int ttX = next_p2(tX);
   
   for(int s=0; s<3; s++) {
     if(euclid && s != 1) continue;
@@ -116,7 +123,7 @@ void level::init_shapes() {
     bool need_uniltinf = uniltinf.tvertices.empty();
     
     auto pt = [&] (int x, int y, int qx, int qy) {
-      if(need_uniltinf) uniltinf.tvertices.push_back(glhr::makevertex(x * 1. / tX / prec, y * 1. / tY / prec, 0));
+      if(need_uniltinf) uniltinf.tvertices.push_back(glhr::makevertex(x * 1. / ttX / prec, y * 1. / ttY / prec, 0));
       if(s == 2) {
         ld ax = x, ay = y;
         if(qx) {
@@ -135,7 +142,7 @@ void level::init_shapes() {
           ay += .5;
           ay += (y % cdiv) * (cdiv/2-1.) / (cdiv/2);
           }
-        uniltinf_stepped.tvertices.push_back(glhr::makevertex((ax+qx) / tX / prec, (ay+qy) / tY / prec, 0));
+        uniltinf_stepped.tvertices.push_back(glhr::makevertex((ax+qx) / ttX / prec, (ay+qy) / ttY / prec, 0));
         }
       
       hyperpoint h = mappt(x, y, prec);
@@ -332,7 +339,21 @@ void level::init_shapes() {
 
 void level::init() {
   if(initialized) return;
+
+  if(this == &multifloor) {
+    for(int y=1; y<=4; y++) {
+      auto l = new level(*this);
+      l->name = l->name + "#" + its(y);
+      l->surface = [y] (hyperpoint h) { return rot_plane(h) - 3 * y; };
+      l->map_tiles[1][1] = '*';
+      l->sublevels = {};
+      sublevels.push_back(l);
+      }
+    }
+
   initialized = true;
+
+
   check_cgi();
 
   real_minx = HUGE_VAL;
@@ -374,11 +395,15 @@ void level::init() {
         d.where = h;
         d.x = x;
         d.y = y;
+        d.which = this;
         for(int i=0; i<7; i++)
           d.colors[i] = gradient(0xFFD500FF, 0xFF, 0, i, 8);
         d.colors[6] = d.colors[0];
         triangles.emplace_back(d);
         }
+
+      if(flags & nrlSwapTriangleOrder)
+        sort(triangles.begin(), triangles.end(), [] (triangledata& d1, triangledata& d2) { return tie(d1.x, d1.y) < tie(d2.x, d2.y); });
       }
     cgi.finishshape();
     }
@@ -386,6 +411,13 @@ void level::init() {
   start.where = mappt(startx+.5, starty+.5, 1);
   start.t = 0;
   start.timer = 0;
+  start.on_surface = this;
+  start.sstime = -100;
+  start.last_tramp = -100;
+  start.collected_triangles = 0;
+  start.goals = 0;
+  start.failed = 0;
+  start.vel = 0;
   current = start;
   println(hlog, "start.where = ", start.where);
   println(hlog, "current.where = ", current.where, " : ", hr::format("%p", &current));
@@ -395,6 +427,8 @@ void level::init() {
   records[1].resize(qgoals, 0);
   current_score.resize(qgoals, 0);
 
+  int steps = 0;
+
   /* start facing slightly to the right from the slope */
   for(auto b: {true, false}) while(true) {
     auto c = start;
@@ -403,7 +437,10 @@ void level::init() {
     dynamicval<bool> lop2(planning_mode, false);
     if(c.tick(this) == b) break;
     start.heading_angle -= degree;
+    steps++; if(steps > 1080) break;
     }
+
+  if(steps > 1080) println(hlog, "warning: could not find a correct start.heading_angle");
 
   if(flags & nrlOrder) {
     sort(triangles.begin(), triangles.end(), [this] (triangledata a, triangledata b) {
@@ -413,6 +450,12 @@ void level::init() {
     }
   
   init_plan();
+
+  for(auto s: sublevels) {
+    s->init();
+    for(auto& t: s->triangles) triangles.push_back(t);
+    s->triangles.clear();
+    }
   }
 
 xy_float level::get_xy_f(hyperpoint h) {
@@ -477,8 +520,8 @@ int nilrider_shift = 2633;
 void level::draw_level(const shiftmatrix& V) {
   int id = 0;
   init_statues();
-  curlev->init_shapes();
-  curlev->init_textures();
+  init_shapes();
+  init_textures();
 
   for(auto& t: triangles) {
     bool gotit = current.collected_triangles & Flag(id);
@@ -498,7 +541,7 @@ void level::draw_level(const shiftmatrix& V) {
       }
     }
 
-  if(true) {
+  if(isize(castle_tinf.tvertices)) {
     auto& poly = queuepoly(V, shCastle, 0xC02020FF);
     poly.tinf = &castle_tinf;
     castle_tinf.texture_id = castle_texture->textureid;
@@ -520,6 +563,11 @@ void level::draw_level(const shiftmatrix& V) {
     }
   }
 
+void level::draw_level_rec(const shiftmatrix& V) {
+  draw_level(V);
+  for(auto sub: sublevels) sub->draw_level_rec(V);
+  }
+
 void cleanup_texture(texture::texture_data*& d) {
   if(d) delete d;
   d = nullptr;
@@ -533,4 +581,93 @@ void cleanup_textures() {
   println(hlog, "CLEANUP texture");
   cleanup_texture(castle_texture);
   }
+
+void load_level(const string& fname, bool init) {
+  fhstream f(fname, "r");
+  if(!f.f) throw hr_exception("could not open file ");
+  level lev("Untitled", '1', nrlUserCreated, 0, "", -1, 1, 1, -1, {}, 0, 0, {}, rot_plane, { goal{0x40FF40, "Collect all the triangles", basic_check(999, 999), "", "", award_stars(0, 999, 0)} });
+  lev.filename = fname;
+  level *csub = &lev;
+  string s;
+  while(true) {
+    string s = scanline_noblank(f);
+    if(s == "" && feof(f.f)) break;
+    if(s == "") continue;
+    if(s[0] == '#') continue;
+    auto pos = s.find(' ');
+    if(pos == string::npos)
+      throw hr_exception("incorrect format, a line without space");
+    string cmd = s.substr(0, pos);
+    string param = s.substr(pos + 1);
+    if(cmd == "NAME") { csub->name = param; }
+    else if(cmd == "DESC") { if(csub->longdesc != "") csub->longdesc += "\n\n"; csub->longdesc += param; }
+    else if(cmd == "BOUNDS") { if(sscanf(param.c_str(), "%lf%lf%lf%lf", &csub->minx, &csub->miny, &csub->maxx, &csub->maxy) != 4) throw hr_exception("incorrect BOUNDS line"); }
+    else if(cmd == "START") { if(sscanf(param.c_str(), "%lf%lf", &csub->startx, &csub->starty) != 2) throw hr_exception("incorrect START line"); }
+    else if(cmd == "MAP") csub->map_tiles.push_back(param);
+    else if(cmd == "PIXEL") {
+      char label; color_t col;
+      if(sscanf(param.c_str(), "%c%x", &label, &col) != 2) throw hr_exception("incorrect PIXEL line");
+      bcols[label] = col;
+      }
+    else if(cmd == "BLOCK") {
+      if(param.size() != 1) throw hr_exception("incorrect BLOCK line");
+      auto& submap = submaps[param[0]];
+      for(int y=0; y<pixel_per_block; y++) {
+        submap[y] = scanline_noblank(f);
+        if(isize(submap[y]) != pixel_per_block) throw hr_exception("incorrect length of a BLOCK line");
+        }
+      }
+    else if(cmd == "FUNCTION") {
+      if(param == "zero") csub->surface = rot_plane;
+      else if(param == "heisenberg") csub->surface = f_heisenberg0;
+      else if(param == "well") csub->surface = f_rot_well;
+      else if(param == "longtrack") csub->surface = long_x;
+      else csub->surface = [param] (hyperpoint h) -> ld {
+        exp_parser ep;
+        ep.extra_params["x"] = h[0];
+        ep.extra_params["y"] = h[1];
+        ep.s = param;
+        try {
+          return ep.rparse();
+          }
+        catch(hr_parse_exception&) {
+          return 0;
+          }
+        };
+      }
+    else if(cmd == "LAYER") {
+      csub = new level(lev);
+      csub->name = param;
+      lev.sublevels.push_back(csub);
+      csub->map_tiles = {};
+      }
+    }
+  if(lev.startx < 0 || lev.starty < 0 || lev.starty >= isize(lev.map_tiles) || lev.startx >= isize(lev.map_tiles[0]))
+    throw hr_exception("start position incorrect");
+  auto all = lev.gen_layer_list();
+  for(auto& l: all) {
+    if(l->map_tiles.empty()) throw hr_exception("no map");
+    if(l->map_tiles[0].empty()) throw hr_exception("empty strings in map");
+    for(auto& s: l->map_tiles) if(isize(s) != isize(l->map_tiles[0])) throw hr_exception("map is not rectangular");
+    if(l->minx == l->maxx) throw hr_exception("bad map X dimensions");
+    if(l->miny == l->maxy) throw hr_exception("bad map Y dimensions");
+    }
+  for(auto& l: all_levels) if(l->name == lev.name) {
+    if(l->flags & nrlUserCreated) {
+      cgi.ext.erase("nillevel-" + l->name);
+      swap(*l, lev);
+      curlev = l;
+      if(on) l->init();
+      return;
+      }
+    else throw hr_exception("cannot use the same name as an official level");
+    }
+  if(init) {
+    curlev = new level(lev);
+    all_levels.emplace_back(curlev);
+    if(on) curlev->init();
+    }
+  }
+
 }
+

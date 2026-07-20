@@ -9,34 +9,71 @@ bool alone = true;
 bool in_special = false;
 
 #if CAP_RVSLIDES
-auto geoslide(eGeometry g, char canvas, int jhole, int jblock) {
+
+using ccolor::data;
+
+#define CCO [] (cell *c, data& cco) -> color_t
+
+int jhole = 0;
+int jblock = 0;
+
+data jmap("rainbow by distance", ccolor::always_available,
+    CCO {
+      if(c == currentmap->gamestart()) return ccolor::plain(c);
+      int d = c->master->distance;
+      if(geometry == gNil) d = c->master->zebraval;
+      if(euc::in()) d = euc::get_ispacemap()[c->master][0];
+      if(d % 2 == 0 || d < -5 || d > 5) return hrand(100) < jblock ? 0xFFFFFFFF : ccolor::plain(c);
+      return hrand(100) < jhole ? ccolor::plain(c) : cco.ctab[(d+5)/2];
+      },
+    {0x100FFFF, 0x100FF00, 0x1FFFF00, 0x1FF8000, 0x1FF0000, 0x1FF00FF}
+    );
+
+data jmap2("rainbow by distance II", ccolor::always_available,
+    CCO {
+      if(c == currentmap->gamestart()) return ccolor::plain(c);
+      int d = c->master->distance;
+      if(geometry == gNil) d = c->master->zebraval;
+      if(euc::in()) d = euc::get_ispacemap()[c->master][0];
+      if((d&3) != 2) return hrand(100) < jblock ? 0xFFFFFFFF : ccolor::plain(c);
+      return hrand(100) < jhole ? ccolor::plain(c) : cco.ctab[(d+10)/4];
+      },
+    {0x100FFFF, 0x100FF00, 0x1FFFF00, 0x1FF8000, 0x1FF0000, 0x1FF00FF}
+    );
+
+data random_pseudohept("random_pseudohept", ccolor::always_available,
+  CCO {
+    color_t r = hrand(0xFFFFFF + 1);
+    if(hrand(100) < ccolor::rwalls && pseudohept(c) && c != cwt.at) r |= 0x1000000;
+    return r;
+    }, {});
+
+auto geoslide(eGeometry g, ccolor::data *canvas, int _jhole, int _jblock) {
   using namespace tour;
   return [=] (presmode mode) {
-    setCanvas(mode, '0');
-    if(mode == pmStart) {
+    setWhiteCanvas(mode, [&] {
       set_geometry(g);
       if(g == gSphere) {
         set_geometry(gProduct);
         }
       if(g == gNormal) {
-        set_geometry(gRotSpace);
+        set_geometry(gTwistedProduct);
         }
       tour::slide_backup<ld>(sightranges[gProduct], 12);
       tour::slide_backup<ld>(sightranges[gNil], 7);
       tour::slide_backup<ld>(sightranges[gSol], 7);
       tour::slide_backup<ld>(sightranges[gSpace435], 7);
       vid.texture_step = 4;
-      tour::slide_backup(patterns::jhole, jhole);
-      tour::slide_backup(patterns::rwalls, jhole);
-      tour::slide_backup(patterns::jblock, jblock);
-      tour::slide_backup(patterns::whichCanvas, canvas);
+      tour::slide_backup(jhole, _jhole);
+      tour::slide_backup(jblock, _jblock);
+      tour::slide_backup(ccolor::rwalls, _jhole);
+      tour::slide_backup(ccolor::which, canvas);
       tour::slide_backup(vid.linewidth, vid.linewidth / 10);
-      start_game();
       if(jblock < 0) {
         pmodel = mdDisk;
         sightranges[gSol] = 4;
         }
-      }
+      });
     rogueviz::pres::non_game_slide_scroll(mode);
     if(mode == pmStop && jblock < 0)
       pmodel = mdGeodesic;
@@ -45,7 +82,7 @@ auto geoslide(eGeometry g, char canvas, int jhole, int jblock) {
     if(in_special && among(mode, pmGeometrySpecial, pmStop)) {
       in_special = false;
       gamestack::pop();
-      patterns::whichCanvas = canvas;
+      ccolor::which = canvas;
       vid.grid = false;
       fat_edges = false;
       sightranges[gSpace435] = 7;
@@ -54,7 +91,7 @@ auto geoslide(eGeometry g, char canvas, int jhole, int jblock) {
     else if(mode == pmGeometrySpecial && !in_special) {
       in_special = true;
       gamestack::push();
-      patterns::whichCanvas = 'g';
+      ccolor::set_plain(0);
       vid.grid = true;
       stdgridcolor = 0xFFFF00FF;
       fat_edges = true;
@@ -108,46 +145,46 @@ void honey(string s, vector<tour::slide>& v) {
       "show the edges of all cells. In our visualizations, we fill some of the cells. "
       "The disadvantage of the traditional visualization is visible here, on the example of {4,3,5} hyperbolic honeycomb: "
       "our Euclidean brains tend to interpret this visualization incorrectly. (Press '2' to get the traditional visualization.)",
-      geoslide(gSpace435, 'r', 50, 0)
+      geoslide(gSpace435, &ccolor::random, 50, 0)
       });
   v.emplace_back(
     slide{cap+"S2xE", 999, LEGAL::NONE,
       "This is the S2xE geometry.",
-      geoslide(gSphere, 'r', 10, 0)
+      geoslide(gSphere, &ccolor::random, 10, 0)
       });
   v.emplace_back(
     slide{cap+"Solv: random", 999, LEGAL::NONE,
       "Random blocks in Solv geometry.",
-      geoslide(gSol, 'r', 20, 0)
+      geoslide(gSol, &ccolor::random, 20, 0)
       });
   v.emplace_back(
     slide{cap+"Solv: Poincaré ball", 999, LEGAL::NONE,
       "Surfaces of constant 'z' in Solv geometry, displayed in Poincaré ball-like model. "
       "Press '5' to change the sight range (this slide is not optimized, so it will be slow).",
-      geoslide(gSol, 'j', 0, -1)
+      geoslide(gSol, &jmap, 0, -1)
       });
   v.emplace_back(
     slide{cap+"Solv: horotori", 999, LEGAL::NONE,
       "Solv geometry. Colored torus-like surfaces are surfaces of constant 'z'. "
       "Press '5' to enable the raycaster",
-      geoslide(gSol, 'j', 50, 0)
+      geoslide(gSol, &jmap, 50, 0)
       });
   v.emplace_back(
     slide{cap+"Solv: difficult region", 999, LEGAL::NONE,
       "This slide focuses on the area in Solv geometry which is difficult to render using primitives. "
       "Press '5' to enable the raycaster.",      
-      geoslide(gSol, 'J', 0, 10)
+      geoslide(gSol, &jmap2, 0, 10)
       });
   v.emplace_back(
     slide{cap+"Nil geometry", 999, LEGAL::NONE,
       "Nil geometry. Colored surfaces are surfaces of constant 'x'. "
       "Press '5' to enable the raycaster",
-      geoslide(gNil, 'j', 10, 10)
+      geoslide(gNil, &jmap, 10, 10)
       });
   v.emplace_back(
     slide{cap+"SL(2,R) geometry", 999, LEGAL::NONE,
       "SL(2,R) geometry.",
-      geoslide(gNormal, 'G', 90, 0)
+      geoslide(gNormal, &random_pseudohept, 90, 0)
       });
 
   }
@@ -159,15 +196,13 @@ tour::slide *gen_noniso_demo() {
   noniso_slides.clear();
   using namespace tour;
   noniso_slides.emplace_back(
-    slide{"Non-isotropic geometry demo", 999, LEGAL::NONE | QUICKSKIP | QUICKGEO, 
-      "This is a presentation of non-isotropic geometries.",
+    slide{"Anisotropic geometry demo", 999, LEGAL::NONE | QUICKSKIP | QUICKGEO, 
+      "This is a presentation of anisotropic geometries.",
       [] (presmode mode) {
-        slide_url(mode, 'p', "paper about non-isotropic geometries", "https://arxiv.org/abs/2002.09533");
-        setCanvas(mode, 'r');
-        if(mode == pmStart) {
+        slide_url(mode, 'p', "paper about anisotropic geometries", "https://arxiv.org/abs/2002.09533");
+        setCanvas(mode, &ccolor::random, [] {
           set_geometry(gCubeTiling);
-          start_game();
-          }
+          });
         }
       });
 
@@ -183,7 +218,7 @@ auto hooks  = addHook_rvslides(163, honey)
     if(noniso_slides.empty()) 
       gen_noniso_demo();
 
-    cb(XLAT("non-isotropic geometries"), &noniso_slides[0], 'n');
+    cb(XLAT("Anisotropic Geometries"), &noniso_slides[0], 'n');
     });
 
 } }

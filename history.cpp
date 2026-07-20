@@ -143,14 +143,14 @@ namespace spiral {
       SDL_Event event;
       while(SDL_PollEvent(&event)) switch (event.type) {
 
-        #if !CAP_SDL2
+        #if SDLVER == 1
         case SDL_VIDEORESIZE: {
           resize_screen_to(event.resize.w, event.resize.h);
           precompute();
           break;
           }
         #endif
-        #if CAP_SDL2
+        #if SDLVER == 2
         case SDL_WINDOWEVENT: {
           if(event.window.event == SDL_WINDOWEVENT_RESIZED)
           resize_screen_to(event.window.data1, event.window.data2);
@@ -158,13 +158,20 @@ namespace spiral {
           break;
           }
         #endif
-        case SDL_QUIT: case SDL_MOUSEBUTTONDOWN:
+        #if SDLVER == 3
+        case SDL_EVENT_WINDOW_RESIZED: {
+          resize_screen_to(event.window.data1, event.window.data2);
+          precompute();
+          break;
+          }
+        #endif
+        case SDL_EVENT_QUIT: case SDL_EVENT_MOUSE_BUTTON_DOWN:
           goto breakloop;
 
-        case SDL_KEYDOWN: {
-          int sym = event.key.keysym.sym;
+        case SDL_EVENT_KEY_DOWN: {
+          int sym = SDL23(event.key.keysym.sym, event.key.key);
           int uni = 0;
-          numlock_on = event.key.keysym.mod & KMOD_NUM;
+          numlock_on = SDL23(event.key.keysym.mod, event.key.mod) & SDL_KMOD_NUM;
           if(DKEY == SDLK_RIGHT) velx++;
           if(DKEY == SDLK_LEFT) velx--;
           if(DKEY == SDLK_UP) vely++;
@@ -187,7 +194,7 @@ EX namespace history {
 
   void handleKeyC(int sym, int uni);
   
-  int lastprogress;
+  EX int lastprogress;
   
   EX void progress_screen() {
     gamescreen();
@@ -457,6 +464,11 @@ EX namespace history {
       dynamicval<bool> di(inHighQual, true);
       
       renderbuffer glbuf(bandfull, bandfull, vid.usingGL);
+      glbuf.make_surface(); if(!glbuf.srf) {
+        addMessage(XLAT("Could not create an image of that size."));
+        return;
+        }
+
       vid.xres = vid.yres = bandfull;
       glbuf.enable(); current_display->radius = bandhalf;  
       calcparam();
@@ -476,11 +488,12 @@ EX namespace history {
         if(dospiral) 
           bands.push_back(band);
         else 
-          SDL_FreeSurface(band);
+          SDL_DestroySurface(band);
         };
       
       if(!band) {
-        addMessage("Could not create an image of that size.");
+        addMessage(XLAT("Could not create an image of that size."));
+        return;
         }
       else {
   
@@ -528,6 +541,10 @@ EX namespace history {
               len -= bandsegment; xpos -= bandsegment;
               seglen = min(int(len), bandsegment);
               band = SDL_CreateRGBSurface(SDL_SWSURFACE, seglen, bandfull,32,0,0,0,0);
+              if(!band) {
+                addMessage(XLAT("Could not create an image of that size."));
+                return;
+                }
               goto drawsegment;
               }  
             xpos += bwidth;      
@@ -547,7 +564,7 @@ EX namespace history {
     
     if(dospiral) {
       spiral::loop(bands);
-      for(int i=0; i<isize(bands); i++) SDL_FreeSurface(bands[i]);
+      for(int i=0; i<isize(bands); i++) SDL_DestroySurface(bands[i]);
       }
     }
 
@@ -746,19 +763,18 @@ EX namespace history {
     history::includeHistory = false;
     }) + addHook(hooks_configfile, 0, [] {
 
-    addsaver(autobandhistory, "include history"); // check!
-    param_f(lvspeed, "lvspeed", "lineview speed");
-    addsaver(extra_line_steps, "lineview extension");
+    param_f(lvspeed, parameter_names("lvspeed", "lineview speed"));
+    param_f(extra_line_steps, "lineview extension");
       
-    addsaver(bandhalf, "band width");
-    addsaver(bandsegment, "band segment");
-    addsaver(autoband, "automatic band");
-    addsaver(autobandhistory, "automatic band history");
-    addsaver(dospiral, "do spiral");      
+    param_i(bandhalf, "band width");
+    param_i(bandsegment, "band segment");
+    param_b(autoband, "automatic band");
+    param_b(autobandhistory, "automatic band history");
+    param_b(dospiral, "do spiral");
 
     #if CAP_SHOT && CAP_SDL
-    addsaver(band_format_auto, "band_format_auto");
-    addsaver(band_format_now, "band_format_now");
+    param_str(band_format_auto, "band_format_auto");
+    param_str(band_format_now, "band_format_now");
     #endif
     });
 

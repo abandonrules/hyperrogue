@@ -220,9 +220,8 @@ namespace flocking {
       m->ori = oris[i];
       virtualRebase(m);
       m->vel = vels[i];
+      m->store();
       }
-    shmup::fixStorage();
-    
     }
 
   bool turn(int delta) {
@@ -488,7 +487,7 @@ bool drawVertex(const shiftmatrix &V, cell *c, shmup::monster *m) {
     rv_hook(hooks_o_key, 80, o_key);
     rv_hook(shmup::hooks_draw, 90, drawVertex);
     
-    vdata.resize(N);
+    resize_vertices(N);
     
     const auto v = currentmap->allcells();
     
@@ -508,7 +507,7 @@ bool drawVertex(const shiftmatrix &V, cell *c, shmup::monster *m) {
         }
       }
     
-    ld angle;
+    ld angle = 0;
     if(swarm) angle = hrand(1000);
 
     printf("setting up...\n");
@@ -516,8 +515,7 @@ bool drawVertex(const shiftmatrix &V, cell *c, shmup::monster *m) {
       vertexdata& vd = vdata[i];
       // set initial base and at to random cell and random position there 
       
-      
-      createViz(i, v[swarm ? 0 : hrand(isize(v))], Id);
+      vd.be(v[swarm ? 0 : hrand(isize(v))], Id);
       vd.m->pat.T = Id;
       
       if(swarm) {
@@ -545,7 +543,6 @@ bool drawVertex(const shiftmatrix &V, cell *c, shmup::monster *m) {
       vd.m->at = vd.m->pat.T;
       }
   
-    storeall();
     printf("done\n");
     }  
 
@@ -556,7 +553,7 @@ bool drawVertex(const shiftmatrix &V, cell *c, shmup::monster *m) {
   
   void flock_slide(tour::presmode mode, int _N, reaction_t t) {
     using namespace tour;
-    setCanvas(mode, '0');
+    setWhiteCanvas(mode);
     if(mode == pmStart) {
       slide_backup(mapeditor::drawplayer);
       t();

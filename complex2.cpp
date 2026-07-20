@@ -166,11 +166,11 @@ EX namespace brownian {
     ONEMPTY {
       if(hrand(10000) < min(250, 100 + 2 * PT(kills[moAcidBird] + kills[moBrownBug], 50)) * (25 + min(items[itBrownian], 100)) / 25 && c->landparam >= 4 && c->landparam < 24)
         c->item = itBrownian;
-      if(hrand_monster(8000) < 15 + items[itBrownian])
+      if(hrand_monster_in(laBrownian, 8000) < 15 + items[itBrownian])
         c->monst = moAcidBird;
-      else if(hrand_monster(8000) < 15)
+      else if(hrand_monster_in(laBrownian, 8000) < 15)
         c->monst = moAlbatross;
-      else if(hrand_monster(8000) < 15 + items[itBrownian]) {
+      else if(hrand_monster_in(laBrownian, 8000) < 15 + items[itBrownian]) {
         c->monst = moBrownBug;
         c->hitpoints = 3;
         }
@@ -224,7 +224,7 @@ EX namespace westwall {
   void build(vector<cell*>& whirlline, int d) {
     again: 
     cell *at = whirlline[isize(whirlline)-1];
-    cell *prev = whirlline[isize(whirlline)-2];
+    cell *prev = isize(whirlline) >= 2 ? whirlline[isize(whirlline)-2] : NULL;
     if(looped(whirlline)) return;
     for(int i=0; i<at->type; i++) 
       if(at->move(i) && coastvalEdge1(at->move(i)) == d && at->move(i) != prev) {
@@ -291,7 +291,7 @@ extern array<feature, 21> features;
 
 #define VF [] (cell *c)
 
-bool hrand_var(int i) { return hrand_monster(i) < 25 + items[itVarTreasure] + yendor::hardness(); }
+bool hrand_var(int i) { return hrand_monster_in(laVariant, i) < 25 + items[itVarTreasure] + yendor::hardness(); }
 
 array<feature, 21> features {{
   feature{(color_t)(-0x202020), 5, moNecromancer, VF {
@@ -354,6 +354,8 @@ vector<string> knight_names = {
   "JeLomun", "kip", "Warmonger", "Fooruman", "Zyalin", "Prezombie", "ashley89", "bjobae", "MFErtre", "Roaringdragon2", "howilovepi", "Yulgash", "Sir Endipitous", "Roshlev",
   "BTernaryTau", "HiGuy", "coper", "Tirear", "qoala _", "Tyzone", "Tiegon", "Airin", "Metroid26", "Sklorg", "Fumblestealth", "Toph", "Tzaphqiel", "jruderman", "ray",
   "Deathroll", "Sinquetica", "mootmoot", "Noobinator", "freeofme", "Helyea", "Snakebird Priestess", "brisingre", "Khashishi", "Shiny", "kabado", "Berenthas", "Misery", "Altripp", "Aldrenean",
+  // via itch.io and reports on Discord
+  "AntiRogue"
   };
 
 map<cell*, int> knight_id;
@@ -526,7 +528,7 @@ EX void count_status() {
   for(cell *c: currentmap->allcells()) if(among(c->wall, waMineMine, waMineUnknown) && mine::marked_mine(c)) kills[moTameBomberbird]++;
   if(last && !kills[moBomberbird]) {
     mine::victory_time = getgametime();
-    showMissionScreen();
+    showMissionScreen(true);
     }
   }
 
@@ -950,6 +952,8 @@ EX namespace dice {
         highest_hardness = max(highest_hardness, hardness[i]);
       }
     };
+
+  EX int get_facesides(struct die_structure* ds) { return ds->facesides; }
   
   die_structure d20(5, {
     {13-1, 7-1, 19-1}, {20-1, 12-1, 18-1}, {19-1, 17-1, 16-1}, {14-1, 18-1, 11-1}, {13-1, 18-1, 15-1}, 
@@ -979,7 +983,7 @@ EX namespace dice {
   struct die_data {
     struct die_structure *which;
     int val; /* the current face value */
-    int dir; /* which direction is the first side (which->sides[val][0]) of the current face */
+    int dir; /* which direction is the first side (which->sides[val][0]) of the current face, multipled by facesides */
     bool mirrored;
     int happy();
     };
@@ -1010,11 +1014,11 @@ EX namespace dice {
     dd.which = ds;
     vector<int> dirs;
     for(int i=0; i<c->type; i++) createMov(c, i);
-    for(int i=0; i<c->type; i++) 
+    for(int i=0; i<c->type * ds->facesides; i++)
     for(int j=0; j<c->type; j++) if(can_roll(ds->facesides, i, movei(c, j)))
       dirs.push_back(i);
     if(dirs.empty())
-      dd.dir = hrand(c->type);
+      dd.dir = hrand(c->type * ds->facesides);
     else
       dd.dir = hrand_elt(dirs);
     vector<int> sides;
@@ -1034,8 +1038,8 @@ EX namespace dice {
     }
 
   EX bool can_roll(int sides, int cur, movei mi) {
-    if(mi.t->type % sides) return false;
-    if((cur - mi.d) % (mi.s->type / sides)) return false;
+    if(gcd(mi.t->type, sides) == 1) return false;
+    if((cur - mi.d * sides) % mi.s->type) return false;
     return true;
     }
   
@@ -1120,7 +1124,7 @@ EX namespace dice {
     else if(pct2 < 40 + hard) {
       c->monst = moAnimatedDie;
       generate_specific(c, &d20, 0, 99);
-      }    
+      }
     }
 
   EX die_data roll_effect(movei mi, die_data dd) {
@@ -1137,9 +1141,9 @@ EX namespace dice {
     
     int si = dw->facesides;
     
-    if(t % si) { println(hlog, "error: bad roll"); return dd; }
+    if(gcd(t, si) == 1) { println(hlog, "error: bad roll ", tie(t, si)); return dd; }
     
-    int sideid = gmod((rdir - dir) * (dd.mirrored?-1:1) * si / t, si);
+    int sideid = gmod((rdir * si - dir) * (dd.mirrored?-1:1) / t, si);
     
     int val1 = dw->sides[val][sideid];
     
@@ -1148,15 +1152,15 @@ EX namespace dice {
     int sideid1 = dw->spins[val][sideid];
     
     int t1 = cto->type;
-    if(t1 % si1) { println(hlog, "error: bad roll target"); return dd; }
+    if(gcd(t1, si1) == 1) { println(hlog, "error: bad roll target"); return dd; }
     
     int rdir1 = mi.rev_dir_force();
     
     bool mirror1 = dd.mirrored ^ mi.mirror();
+
+    int dir1 = rdir1 * si1 - (mirror1?-1:1) * sideid1 * t1;
     
-    int dir1 = rdir1 - (mirror1?-1:1) * sideid1 * t1 / si1;
-    
-    dir1 = gmod(dir1, t1);
+    dir1 = gmod(dir1, t1 * si1);
     
     dd.mirrored = mirror1;
     dd.val = val1;
@@ -1237,16 +1241,22 @@ EX namespace dice {
     else if(!lmouseover_distant || !on(lmouseover_distant)) if(CAP_EXTFONT || vid.usingGL == false) {
       queuestr(V, .5, its(val+1), 0xFFFFFFFF);
       auto& side = dw->sides[val];
+      auto fs = isize(side);
       for(int i=0; i<si; i++) {
-        int d = dir + c->type * i / isize(side);
-        d = gmod(d, c->type);
+        int d = dir + c->type * i;
+        int err = d % fs;
+        d = gmod(d / fs, c->type);
         hyperpoint nxt = tC0(currentmap->adj(c, d));
+        if(err) {
+          auto nxt1 = tC0(currentmap->adj(c, (d+1) % c->type));
+          nxt = normalize(nxt * (fs - err) + nxt1 * err);
+          }
         hyperpoint mid = normalize(C0 * 1.3 + nxt * -.3);
-        queuestr(V * rgpushxto0(mid), .25, its(side[i]+1), 0xFFFFFFFF);
+        queuestr(V * rgpushxto0(mid), .25, its(side[i]+1), 0xFFFFFF);
         }
       }
     
-    shiftmatrix V1 = V * ddspin(c, dir, M_PI);
+    shiftmatrix V1 = V * ddspin(c, 0, M_PI - TAU * dir / c->type / si);
     if(dd.mirrored) V1 = V1 * MirrorY;
     
     // loop:
@@ -1430,7 +1440,9 @@ EX namespace dice {
             cx = (face[j2] - face[j]) / 2;
             cy = face[j1] - (face[j] + face[j2]) / 4;
             }
-          write_in_space(V1, max_glfont_size, -1.2, its(1+dw->sides[q][j]), 0xFFFFFFFF, 0, 8, prio, pf);
+          ld scale = -1.2;
+          if(getDistLimit() < 4) scale /= 3;
+          write_in_space(V1, max_glfont_size, scale, its(1+dw->sides[q][j]), 0xFFFFFFFF, 0, 8, prio, pf);
           }
         }
       else {
@@ -1439,7 +1451,9 @@ EX namespace dice {
         if(fid == 6) s = "6.";
         else if(fid == 9) s = "9.";
         else s = its(fid);
-        write_in_space(V1, max_glfont_size, dw->faces < 10 ? -1.2 : -.75, s, 0xFFFFFFFF, 0, 8, prio, pf);
+        ld scale = dw->faces < 10 ? -1.2 : -.75;
+        if(getDistLimit() < 4) scale /= 2.5;
+        write_in_space(V1, max_glfont_size, scale, s, 0xFFFFFFFF, 0, 8, prio, pf);
         }
       #endif
       #endif

@@ -13,8 +13,8 @@
 #define _HYPER_H_
 
 // version numbers
-#define VER "12.1y"
-#define VERNUM_HEX 0xA939
+#define VER "13.1l"
+#define VERNUM_HEX 0xAA2C
 
 #include "sysconfig.h"
 
@@ -126,8 +126,8 @@ void addMessage(string s, char spamtype = 0);
 
 #define S7 cginf.sides
 #define S3 cginf.vertex
-#define hyperbolic_37 (S7 == 7 && S3 == 3 && !bt::in() && !arcm::in())
-#define hyperbolic_not37 ((S7 > 7 || S3 > 3 || bt::in() || arcm::in()) && hyperbolic)
+#define hyperbolic_37 (S7 == 7 && S3 == 3 && !bt::in() && !arcm::in() && !arb::in())
+#define hyperbolic_not37 ((S7 > 7 || S3 > 3 || bt::in() || arcm::in() || arb::in()) && hyperbolic)
 #define weirdhyperbolic ((S7 > 7 || S3 > 3 || !STDVAR || bt::in() || arcm::in() || arb::in()) && hyperbolic)
 #define stdhyperbolic (S7 == 7 && S3 == 3 && STDVAR && !bt::in() && !arcm::in() && !arb::in())
 
@@ -148,7 +148,7 @@ void addMessage(string s, char spamtype = 0);
 #define nih (among(cgclass, gcNIH, gcSolN))
 #define nil (cgclass == gcNil)
 #define sl2 (cgclass == gcSL2)
-#define rotspace (geometry == gRotSpace)
+#define gtwisted (geometry == gTwistedProduct)
 #define hyperbolic (cgclass == gcHyperbolic)
 #define nonisotropic (among(cgclass, gcSol, gcSolN, gcNIH, gcSL2, gcNil))
 #define translatable (euclid || nonisotropic)
@@ -167,6 +167,8 @@ void addMessage(string s, char spamtype = 0);
 #define embedded_plane (WDIM == 2 && GDIM == 3)
 /** the actual map is product, not just the graphics */
 #define mproduct (gproduct && !embedded_plane)
+/** the actual map is twisted, not just the graphics */
+#define mtwisted (gtwisted && !embedded_plane)
 /** the actual map is product, not just the graphics */
 #define meuclid (geom3::mgclass() == gcEuclid)
 #define msphere (geom3::mgclass() == gcSphere)
@@ -175,7 +177,7 @@ void addMessage(string s, char spamtype = 0);
 // Dry Forest burning, heat transfer, etc. are performed on the whole universe
 #define doall (closed_or_bounded)
 
-#define sphere_narcm (sphere && !arcm::in())
+#define sphere_narcm (sphere && !arcm::in() && !arb::in())
 
 #define a4 (S3 == 4)
 #define a45 (S3 == 4 && S7 == 5)
@@ -221,15 +223,6 @@ void addMessage(string s, char spamtype = 0);
 
 #define NUMWITCH 7
 
-// achievements
-
-#define LB_YENDOR_CHALLENGE 40
-#define LB_PURE_TACTICS 41
-#define NUMLEADER 87
-#define LB_PURE_TACTICS_SHMUP 49
-#define LB_PURE_TACTICS_COOP 50
-#define LB_RACING 81
-
 #if ISMOBILE || ISWEB || ISPANDORA || 1
 typedef double ld;
 #define LDF "%lf"
@@ -250,7 +243,7 @@ struct charstyle {
   bool lefthanded;
   };
 
-enum eStereo { sOFF, sAnaglyph, sLR, sODS };
+enum eStereo { sOFF, sAnaglyph, sLR, sODS, sPanini, sStereographic, sEquirectangular, sCylindrical };
 
 enum eModel : int;
 
@@ -258,12 +251,14 @@ enum eModel : int;
 struct projection_configuration {
   eModel model;            /**< which projection, see classes.cpp */
   ld xposition, yposition; /**< move the center to another position */
-  ld scale, alpha, fisheye_param, twopoint_param, axial_angle, stretch, ballproj, euclid_to_sphere;
+  ld scale, alpha, fisheye_param, fisheye_alpha, twopoint_param, axial_angle, stretch, ballproj, euclid_to_sphere;
   ld clip_min, clip_max;
   ld halfplane_scale;  
   ld collignon_parameter; 
+  ld offside, offside2;
   ld aitoff_parameter, miller_parameter, loximuthal_parameter, winkel_parameter;
   bool show_hyperboloid_flat;
+  bool small_hyperboloid;
   bool collignon_reflected;
   string formula;
   eModel basic_model;
@@ -395,6 +390,7 @@ struct videopar {
   int cells_generated_limit; // limit on cells generated per frame
   
   eStereo stereo_mode;
+  ld stereo_param;
   ld ipd;
   ld lr_eyewidth, anaglyph_eyewidth;
   ld fov;
@@ -473,6 +469,10 @@ extern videopar vid;
 #define R200 (big_unlock ? 800 : 200)
 // Crossroads V
 #define R300 (big_unlock ? 1200 : 300)
+// Thematic Crossroads
+#define R400 (big_unlock ? 1600 : 400)
+// Master Crossroads
+#define R500 (big_unlock ? 2000 : 500)
 // kill types for Dragon Chasms
 #define R20 (big_unlock ? 30 : 20)
 // kill count for Graveyard/Hive
@@ -564,7 +564,7 @@ typedef function<int(struct cell*)> cellfunction;
 // passable flags
 
 #define SAGEMELT .1
-#define PT(x, y) ((tactic::on || quotient == 2 || daily::on) ? (y) : inv::on ? min(2*(y),x) : (x))
+#define PT(x, y) rebalance_treasure(x, y, c->land)
 #define ROCKSNAKELENGTH 50
 #define WORMLENGTH 15
 #define PRIZEMUL 7
@@ -691,20 +691,10 @@ static constexpr int MAXPLAYER = 7;
 enum class PPR {
   ZERO, EUCLIDEAN_SKY, OUTCIRCLE, MOVESTAR,
   MINUSINF,
-  BELOWBOTTOMm,
-  BELOWBOTTOM,
-  BELOWBOTTOMp,
-  BELOWBOTTOM_FALLANIM,
-  LAKEBOTTOM, HELLSPIKE,
-  INLAKEWALLm, INLAKEWALL, INLAKEWALLp,
-  INLAKEWALL_FALLANIM,
-  BSHALLOW, SHALLOW, ASHALLOW,
-  SUBLAKELEV, LAKELEV, BOATLEV, BOATLEV2, BOATLEV3,
-  LAKEWALLm, LAKEWALL, LAKEWALLp,
-  LAKEWALL_FALLANIM,
-  FLOOR_TOWER,
-  FLOOR,
-  FLOOR_DRAGON,
+  DEEP_ESCHER, DEEP_SIDE, DEEP_FALLANIM, DEEP_TOP, HELLSPIKE,
+  SHALLOW_ESCHER, SHALLOW_SIDE, SHALLOW_FALLANIM, SHALLOW_TOP,
+  WATERLEVEL_ESCHER, WATERLEVEL_SIDE, WATERLEVEL_TOP, BOATLEV, BOATLEV2, BOATLEV3,
+  FLOOR_ESCHER, FLOOR_SIDE, FLOOR_FALLANIM, FLOOR_TOWER, FLOOR, FLOOR_DRAGON,
   FLOORa, FLOORb, FLOORc, FLOORd,
   LIZEYE,
   BFLOOR,
@@ -712,17 +702,16 @@ enum class PPR {
   WALLSHADOW,
   STRUCT0, STRUCT1, STRUCT2, STRUCT3,
   THORNS, WALL,
-  REDWALLm, REDWALLs, REDWALLp, REDWALL,
-  REDWALLm2, REDWALLs2, REDWALLp2, REDWALLt2,
-  REDWALLm3, REDWALLs3, REDWALLp3, REDWALLt3,
+  RED1_ESCHER, RED1_SIDE, RED1_TOP,
+  RED2_ESCHER, RED2_SIDE, RED2_TOP,
+  RED3_ESCHER, RED3_SIDE, RED3_TOP,
   HEPTAMARK,
   ITEM_BELOW,
   ITEM, ITEMa, ITEMb,
   BIGSTATUE,
 
-  WALL3m, WALL3s, WALL3p, WALL3, WALL3A,
+  WALL_ESCHER, WALL_SIDE, WALL_TOP, WALL_DECO,
 
-// WALL3m, WALL3s, WALL3p, WALL3, WALL3A,
   HIDDEN, GIANTSHADOW,
   TENTACLE0, TENTACLE1,
   ONTENTACLE, ONTENTACLE_EYES, ONTENTACLE_EYES2,
@@ -778,6 +767,7 @@ enum orbAction { roMouse, roKeyboard, roCheck, roMouseForce, roMultiCheck, roMul
 #define pmodel (pconf.model)
 
 static constexpr int DISTANCE_UNKNOWN = 127;
+static constexpr int DISTANCE_UNKNOWN_BIG = 99999999;
 
 template<class T, class U> int addHook(hookset<T>& m, int prio, U&& hook) {
   return m.add(prio, static_cast<U&&>(hook));
@@ -795,6 +785,20 @@ template<class T, class V, class... U> V callhandlers(V zero, const hookset<T>& 
   return h.callhandlers(zero, static_cast<U&&>(args)...);
   }
 
+void popScreen();
+
+extern vector< function<void()> > screens;
+
+template<class T> void pushScreen(const T& x) { screens.push_back(x); }
+
+template<class T, class U> void hook_in_subscreen(hookset<T>& m, int prio, U&& hook) {
+  int v = m.add(prio, static_cast<U&&>(hook));
+  pushScreen([&m, v] {
+    delHook(m, v);
+    popScreen();
+    });
+  }
+
 string XLAT(string);
 
 #define GLERR(call) glError(call, __FILE__, __LINE__)
@@ -806,7 +810,7 @@ string XLAT(string);
 #define DKEY (get_direction_key(sym, uni))
 #define DIRECTIONKEY (interpret_as_direction(sym, uni) ? uni : 0)
 
-namespace scores { void load(); }
+namespace scores { void load(); void load_only(); extern int which_mode; }
 
 #if ISMOBILE
 namespace leader { void showMenu(); void handleKey(int sym, int uni); }
@@ -886,6 +890,7 @@ template<class T> T& atmod(vector<T>& container, int index) {
 
 namespace daily {
   extern bool on;
+  extern int historical;
   extern int daily_id;
   void setup();
   void split();
@@ -935,14 +940,40 @@ template<class T> ld binsearch(ld dmin, ld dmax, const T& f, int iterations = 20
   return dmin;
   } 
 
-  static constexpr int max_vec = (1<<14);
-  extern bool needConfirmationEvenIfSaved();
+static constexpr int max_vec = (1<<14);
+extern bool needConfirmationEvenIfSaved();
 
 typedef unsigned long long flagtype;
 #define Flag(i) (flagtype(1ull<<i))
 static inline void set_flag(flagtype& f, flagtype which, bool b) {
   if(b) f |= which;
   else f &= ~which;
+  }
+
+void add_debugflag(const string& s, struct debugflag *d);
+
+/** Flags to enable debugging.
+ *  A debugflag can be defined with e.g.: debugflag memory_cell("memory_cell")
+ *  and used as in: if(memory_cell) { ... output debugging info ... }
+ *  Then a commandline parameter '-debug memory' will enable all flags with 'memory' in its name
+ */
+
+struct debugflag {
+  bool enabled;
+  debugflag(string s, bool initial = false) {
+    add_debugflag(s, this);
+    enabled = initial;
+    }
+  operator bool() { return enabled; }
+  void flip() { enabled = !enabled; }
+  };
+
+template<class T> void sizeto(T& t, int n) {
+  if(isize(t) <= n) t.resize(n+1);
+  }
+
+template<class T, class U> void sizeto(T& t, int n, const U& val) {
+  if(isize(t) <= n) t.resize(n+1, val);
   }
 
 }

@@ -1,6 +1,9 @@
+// Nil Rider: saves
+// Copyright (C) 2022-2025 Zeno Rogue, see '../../hyper.cpp' for details
+
 namespace nilrider {
 
-const string ver = "0.1";
+const string ver = "2.0";
 
 string new_replay_name() {
   time_t timer;
@@ -26,19 +29,27 @@ void save() {
           }
       }
     }
+  println(f, "*COLORS\n");
+  println(f, "*RLE\n");
   for(auto l: all_levels) {
+    if(l->flags & nrlUserCreated) {
+      println(f, "*FILE");
+      println(f, l->filename);
+      }
     for(auto& p: l->manual_replays) {
       println(f, "*MANUAL");
       println(f, l->name);
       println(f, p.name);
+      fprintf(f.f, "%08x %08x %08x %08x\n", p.cs.wheel1, p.cs.wheel2, p.cs.seat, p.cs.seatpost);
       println(f, isize(p.headings));
-      for(auto t: p.headings) println(f, t);
+      for(auto t: p.headings) println(f, t.first, " ", t.second);
       println(f);
       }
     for(auto& p: l->plan_replays) {
       println(f, "*PLANNING");
       println(f, l->name);
       println(f, p.name);
+      fprintf(f.f, "%08x %08x %08x %08x\n", p.cs.wheel1, p.cs.wheel2, p.cs.seat, p.cs.seatpost);
       println(f, isize(p.plan));
       for(auto t: p.plan) println(f, hr::format("%.6f %.6f %.6f %.6f", t.at[0], t.at[1], t.vel[0], t.vel[1]));
       println(f);
@@ -53,8 +64,34 @@ level *level_by_name(string s) {
   return nullptr;
   }
 
+colorscheme load_colors(fhstream& f, bool have_colors) {
+  if(have_colors) {
+    colorscheme s(0);
+    fscanf(f.f, "%x%x%x%x", &s.wheel1, &s.wheel2, &s.seat, &s.seatpost);
+    return s;
+    }
+  else {
+    colorscheme s(2);
+    return s;
+    }
+  }
+
+vector<pair<int, int>> apply_rle(const vector<int>& data) {
+  vector<pair<int, int>> rle;
+  if(data.empty()) return rle;
+  int last = data[0], count = 0;
+  for(int v: data) {
+    if(v != last) { rle.emplace_back(count, last); count = 0; last = v; }
+    count++;
+    }
+  rle.emplace_back(count, last);
+  return rle;
+  }
+
 void load() {
   #if CAP_SAVE
+  bool have_colors = false;
+  bool have_rle = false;
   println(hlog, "load called");
   fhstream f("nilrider.save", "rt");
   if(!f.f) return;
@@ -62,27 +99,45 @@ void load() {
   while(!feof(f.f)) {
     string s = scanline_noblank(f);
     if(s == "") continue;
+    if(s == "*COLORS") { have_colors = true; continue; }
+    if(s == "*RLE") { have_rle = true; continue; }
+    if(s == "*FILE") {
+      string s1 = scanline_noblank(f);
+      try { load_level(s1, false); }
+      catch(hr_exception& e) { println(hlog, "error: could not load level ", s1, ", reason: ", e.what()); }
+      }
     if(s == "*MANUAL") {
       string lev = scanline_noblank(f);
       string name = scanline_noblank(f);
-      vector<int> headings;
+      colorscheme cs = load_colors(f, have_colors);
+      vector<pair<int, int>> headings;
       int size = scan<int> (f);
       if(size < 0 || size > 1000000) throw hstream_exception();
-      for(int i=0; i<size; i++) headings.push_back(scan<int>(f));
+      if(have_rle) {
+        println(hlog, "reading a RLE replay");
+        for(int i=0; i<size; i++) { int rep = scan<int>(f); headings.emplace_back(rep, scan<int>(f)); }
+        }
+      else {
+        vector<int> h;
+        for(int i=0; i<size; i++) h.emplace_back(scan<int>(f));
+        headings = apply_rle(h);
+        println(hlog, "converted ", isize(h), " to ", isize(headings));
+        }
       auto l = level_by_name(lev);
-      if(l) l->manual_replays.emplace_back(manual_replay{name, std::move(headings)});
+      if(l) l->manual_replays.emplace_back(manual_replay{name, cs, std::move(headings)});
       continue;
       }
     if(s == "*PLANNING") {
       string lev = scanline_noblank(f);
       string name = scanline_noblank(f);
+      colorscheme cs = load_colors(f, have_colors);
       plan_t plan;
       int size = scan<int> (f);
       if(size < 0 || size > 1000000) throw hstream_exception();
       plan.resize(size, {C0, C0});
       for(int i=0; i<size; i++) scan(f, plan[i].at[0], plan[i].at[1], plan[i].vel[0], plan[i].vel[1]);
       auto l = level_by_name(lev);
-      if(l) l->plan_replays.emplace_back(plan_replay{name, std::move(plan)});
+      if(l) l->plan_replays.emplace_back(plan_replay{name, cs, std::move(plan)});
       continue;
       }
     if(s == "*RECORD") {
@@ -103,6 +158,56 @@ void load() {
     println(hlog, "error: unknown content ", s);
     }
   #endif
+  }
+
+void level::load_plan_as_ghost(plan_replay& r) {
+  vector<timestamp> history_backup;
+  swap(history_backup, history);
+  swap(r.plan, plan);
+  history.clear();
+  history.push_back(start);
+  while(true) {
+    int s = isize(history);
+    if(!simulate()) break;
+    if(isize(history) == s) break;
+    }
+  println(hlog, "a history of length ", isize(history), " becomes a ghost");
+  ghosts.emplace_back(ghost{r.cs, {}});
+  auto& g = ghosts.back();
+  g.history = std::move(history);
+  swap(history_backup, history);
+  swap(r.plan, plan);
+  }
+
+vector<timestamp> level::headings_to_history(manual_replay& r) {
+  vector<timestamp> history;
+  timestamp cur = start;
+  for(auto [qty, h]: r.headings) {
+    println(hlog, "pair: ", tie(qty, h));
+    for(int i=0; i<qty; i++) {
+      if(cur.on_surface) cur.heading_angle = int_to_heading(h);
+      history.push_back(cur);
+      if(!cur.tick(this)) return history;
+      }
+    }
+  return history;
+  }
+
+void level::load_manual_as_ghost(manual_replay& r) {
+  ghosts.emplace_back(ghost{r.cs, headings_to_history(r) });
+  }
+
+void save_manual_replay() {
+  vector<int> ang;
+  if(curlev->history.back().timer < 5) { addMessage("too short -- not saving"); return; }
+  for(auto& h: curlev->history) ang.push_back(h.on_surface ? heading_to_int(h.heading_angle) : 0);
+  curlev->manual_replays.emplace_back(manual_replay{new_replay_name(), my_scheme, apply_rle(ang)});
+  save();
+  }
+
+void level::load_all_ghosts() {
+  for(auto& g: plan_replays) load_plan_as_ghost(g);
+  for(auto& g: manual_replays) load_manual_as_ghost(g);
   }
 
 }

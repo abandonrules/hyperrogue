@@ -76,6 +76,9 @@ void check_nonliteral(string s, string fname, int line) {
     for(string m: hlmodes) check_ex(m, s);
   else if(thu == "current_filter->name") 
     for(auto f: available_filters) check_ex(f->name, s);
+  else if(thu == "cpatterns") {
+    for(auto& f: patterns::cpatterns) check_ex(f.name, s);
+    }
   else if(thu == "olrDescriptions")
     for(string m: olrDescriptions) check_ex(m, s);
   else if(thu == "shmupcmdtable") ;
@@ -83,13 +86,14 @@ void check_nonliteral(string s, string fname, int line) {
   else if(thu == "lv.msg") ; /* trust */
   else if(thu == "opt") ; /* todo */
   else if(thu == "menu_item_name") ; /* todo */
+  else if(s == "p->name") for(auto p: ccolor::all) check_ex(p->name, s);
   else if(s == "winf[w].help") ;
   else if(s == "linf[l].help") ;
   else if(s == "iinf[it].help") ;
   else if(s == "minf[m].help") ;
   else if(among(s, "mapeditorhelp", "patthelp", "drawhelp", "warpdesc", "hyperstone_optional", "irrhelp", "helptext", "inv::helptext", "power_help", "trollhelp2")) ; /* trust */
   else
-    println(hlog, "// unrecognized nonliteral: ", s, " in ", fname, ":", line);
+    println(hlog, "// unrecognized nonliteral: ", s, " in ", fname, ":", line, " (", thu, "/", end, ")");
   }
 
 void check_xlat_content(string s, string fname, int line) {
@@ -191,7 +195,7 @@ void gentrans() {
   DIR           *d;
   struct dirent *dir;
   
-  println(hlog, "// checking all the files");
+  println(hlog, "\n\n// checking all the files");
 
   d = opendir(".");
 
@@ -204,24 +208,24 @@ void gentrans() {
     closedir(d);
     }
 
-  println(hlog, "// checking configurables");
+  println(hlog, "\n\n// checking configurables");
   
   for(auto& fs: params) {
     auto& sett = fs.second;
-    if(sett->menu_item_name != sett->config_name)
-      check_ex(sett->menu_item_name, "menu_item_name for " + sett->parameter_name);
-    check_ex(sett->help_text, "help_text for " + sett->parameter_name);
-    auto ls = dynamic_cast<list_setting*> ( (setting*) &*sett);
+    if(sett->menu_item_name_modified)
+      check_ex(sett->menu_item_name, "menu_item_name for " + sett->name);
+    check_ex(sett->help_text, "help_text for " + sett->name);
+    auto ls = dynamic_cast<list_parameter*> ( (parameter*) &*sett);
     if(ls)
       for(auto opt: ls->options) {
-        check_ex(opt.first, "option first for " + sett->parameter_name);
-        check_ex(opt.second, "option second for " + sett->parameter_name);
+        check_ex(opt.first, "option first for " + sett->name);
+        check_ex(opt.second, "option second for " + sett->name);
         }
     }
   
   exit(0);
   }
 
-auto ar = arg::add3("-gentrans", gentrans);
+auto gtar = arg::add3("-gentrans", gentrans);
 
 }

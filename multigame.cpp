@@ -29,7 +29,7 @@ struct gamedata {
       ::new (&record[index]) T(std::move(x));
       }
     else {
-      T& at = (T&) record[index];
+      T& at = *((T*) (void*) &(record[index]));
       x = std::move(at);
       at.~T();
       }
@@ -56,6 +56,7 @@ void gamedata_all(gamedata& gd) {
   gd.store(currentmap);
   gd.store(cwt);
   gd.store(allmaps);
+  gd.store(dl_list);
   gd.store(shmup::on);
   gd.store(land_structure);
   gd.store(*current_display);
@@ -78,7 +79,7 @@ void gamedata_all(gamedata& gd) {
   gd.store(genrange_bonus);
   gd.store(gamerange_bonus);
   gd.store(targets);
-  gd.store(patterns::rwalls);
+  gd.store(ccolor::rwalls);
   if(GOLDBERG) gd.store(gp::param);
   callhooks(hooks_gamedata, &gd);
   }

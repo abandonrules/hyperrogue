@@ -10,32 +10,12 @@ namespace hr {
 
 EX FILE *debugfile;
 
-#if HDR
-#define DF_INIT              1 // always display these
-#define DF_MSG               2 // always display these
-#define DF_WARN              4 // always display these
-#define DF_ERROR             8 // always display these
-#define DF_STEAM            16
-#define DF_GRAPH            32
-#define DF_TURN             64
-#define DF_FIELD           128
-#define DF_GEOM            256
-#define DF_MEMORY          512
-#define DF_TIME           1024 // a flag to display timestamps
-#define DF_GP             2048
-#define DF_POLY           4096
-#define DF_LOG            8192
-#define DF_VERTEX        16384
-#define DF_KEYS "imwesxufgbtoplv"
-#endif
-
-EX int debugflags = DF_INIT | DF_ERROR | DF_WARN | DF_MSG | DF_TIME | DF_LOG;
-
 EX string s0;
 
 EX string its(int i) { return hr::format("%d", i); }
 
 EX string itsh8(int i) { return hr::format("%08X", i); }
+EX string itsh6(int i) { return hr::format("%06X", i); }
 
 EX string fts(ld x, int prec IS(6)) {
   std::stringstream ss;
@@ -144,7 +124,10 @@ template<class T, class U> void hread(hstream& hs, map<T,U>& a) {
 template<class C, class C1, class... CS> void hwrite(hstream& hs, const C& c, const C1& c1, const CS&... cs) { hwrite(hs, c); hwrite(hs, c1, cs...); }
 template<class C, class C1, class... CS> void hread(hstream& hs, C& c, C1& c1, CS&... cs) { hread(hs, c); hread(hs, c1, cs...); }
 
-struct hstream_exception : hr_exception {};
+struct hstream_exception : hr_exception {
+  hstream_exception() : hr_exception("hstream_exception") {}
+  hstream_exception(const std::string &s) : hr_exception(s) {}
+  };
 
 struct fhstream : hstream {
   FILE *f;
@@ -317,15 +300,23 @@ struct indenter_finish : indenter {
     indenter tmp(-2);
     println(hlog, s);
     }
+  explicit indenter_finish(bool b, string s): indenter(b ? 2 : 0) {
+    if(b) {
+      indenter tmp(-2);
+      println(hlog, s);
+      }
+    }
   ~indenter_finish() { if(hlog.indentation != ind.backup) println(hlog, "(done)"); }
   };
 
 #endif
 
+EX debugflag debug_stamps = {"stamps", true};
+
 void logger::write_char(char c) { 
   if(doindent) { 
     doindent = false; 
-    if(debugflags & DF_TIME) { 
+    if(debug_stamps) {
       string s = get_stamp(); 
       if(s != "") { for(char c: s) special_log(c); special_log(' '); }
       }
@@ -534,9 +525,9 @@ EX string as_nice_cstring(string o) {
 #define DEBB0(r,x)
 #define DEBBI(r,x)
 #else
-#define DEBB(r,x) { if(debugflags & (r)) { println_log x; } }
-#define DEBB0(r,x) { if(debugflags & (r)) { print_log x; } }
-#define DEBBI(r,x) { if(debugflags & (r)) { println_log x; } } indenter_finish _debbi(debugflags & (r));
+#define DEBB(r,x) { if(r) { println_log x; } }
+#define DEBB0(r,x) { if(r) { print_log x; } }
+#define DEBBI(r,x) { if(r) { println_log x; } } indenter_finish _debbi(r);
 #endif
 #endif
 
@@ -555,4 +546,64 @@ template<class... T> string lalign(int len, T... t) {
   return hs.s;
   }
 #endif
+
+map<string, string> last;
+
+EX void debug_view(string context, string s) {
+  string& old = last[context];
+  if(s != old) { old = s; println(hlog, s); }
+  }
+
+EX vector<string> split_string(const string& s, char sep) {
+  vector<string> res;
+  string next = "";
+  for(char c: s) if(c == sep) { res.push_back(next); next = ""; } else next += c;
+  res.push_back(next);
+  return res;
+  }
+
+map<string, int> last_rlerr;
+int err_freq = 10000;
+
+EX void rate_limited_error(const string& s, const string& t IS("")) {
+  auto& last = last_rlerr[s];
+  if(!last || ticks > last + err_freq) {
+    last = ticks;
+    println(hlog, s, t);
+    }
+  }
+
+#if HDR
+struct progressbar {
+  string name;
+  static constexpr int PBSIZE = 64;
+  int step = -1, total, drawat = 0, count = -1, tstart;
+
+  void operator ++ (int) {
+    step++;
+    while(step >= drawat && total) {
+      fflush(stdout);
+      count++;
+      drawat = (total * (count+(long long) 1)) / PBSIZE;
+      fprintf(stderr, "%s [", get_stamp().c_str());
+      for(int k=0; k<count; k++) fprintf(stderr, "#");
+      for(int k=count; k<64; k++) fprintf(stderr, "-");
+      fprintf(stderr, "] %s\x1b[K\r", name.c_str());
+      fflush(stderr);
+      }
+    }
+
+  ~progressbar() {
+    fflush(stdout); fprintf(stderr, "\x1b[K"); fflush(stderr);
+    }
+
+  int clear_time() {
+    fflush(stdout); fprintf(stderr, "\x1b[K"); fflush(stderr);
+    return SDL_GetTicks() - tstart;
+    }
+
+  progressbar(int t, string n) : name(n) { total = t; (*this)++; tstart = SDL_GetTicks(); }
+  };
+#endif
+
 }

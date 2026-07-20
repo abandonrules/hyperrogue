@@ -1095,12 +1095,9 @@ EX void render() {
       dynamicval<transmatrix> tV(View, View);
       dynamicval<transmatrix> tC(current_display->which_copy, current_display->which_copy);
       dynamicval<transmatrix> trt(current_display->radar_transform);
-      
-      /* changed in intra */
-      dynamicval<ld> tcs(camera_speed);
-      dynamicval<ld> tcl(anims::cycle_length);
-      dynamicval<ld> tau(vrhr::absolute_unit_in_meters);
-      dynamicval<ld> tel(walking::eye_level);
+      dynamicval<ld> tcs(intra::scale);
+
+      // just in case
       dynamicval<int> tfd(walking::floor_dir);
       dynamicval<cell*> tof(walking::on_floor_of);
 
@@ -1213,9 +1210,10 @@ EX void show_vr_demos() {
     hmd_ref_at = hmd_at;
     stop_game();
     set_geometry(gNormal);
-    if(GDIM == 3) geom3::switch_fpp();
     specialland = laIce;
     set_variation(eVariation::bitruncated);
+    start_game();
+    if(GDIM == 3) invoke_embed(geom3::seNone);
     pmodel = mdDisk;
     pconf.alpha = 1;
     pconf.vr_scale_factor = 1;
@@ -1223,7 +1221,6 @@ EX void show_vr_demos() {
     pconf.vr_zshift = 0;
     hsm = eHeadset::model_viewing;
     eyes = eEyes::equidistant;
-    start_game();
     popScreenAll();
     });
 
@@ -1234,16 +1231,16 @@ EX void show_vr_demos() {
     stop_game();
     pmodel = mdDisk;
     set_geometry(gNormal);
-    if(GDIM == 2) geom3::switch_fpp();
     specialland = laIce;
     set_variation(eVariation::bitruncated);
+    start_game();
+    invoke_embed(geom3::seDefault);
     pconf.alpha = 1;
     pconf.vr_scale_factor = 1;
     pconf.vr_angle = 0;
     pconf.vr_zshift = 0;
     hsm = eHeadset::reference;
     eyes = eEyes::equidistant;
-    start_game();
     popScreenAll();
     });
 
@@ -1254,9 +1251,10 @@ EX void show_vr_demos() {
     hmd_ref_at = hmd_at;
     stop_game();
     set_geometry(gNormal);
-    if(GDIM == 3) geom3::switch_fpp();
     specialland = laIce;
     set_variation(eVariation::bitruncated);
+    start_game();
+    if(GDIM == 3) invoke_embed(geom3::seNone);
     pmodel = mdDisk;
     pconf.alpha = 1;
     pconf.vr_scale_factor = 1;
@@ -1265,7 +1263,6 @@ EX void show_vr_demos() {
     hsm = eHeadset::model_viewing;
     rug::modelscale = 0.5;
     eyes = eEyes::equidistant;
-    start_game();
     rug::init();
     popScreenAll();
     });
@@ -1277,9 +1274,10 @@ EX void show_vr_demos() {
     hmd_ref_at = hmd_at;
     stop_game();
     set_geometry(gSphere);
-    if(GDIM == 3) geom3::switch_fpp();
     specialland = laHalloween;
     set_variation(eVariation::bitruncated);
+    start_game();
+    if(GDIM == 3) invoke_embed(geom3::seNone);
     pmodel = mdDisk;
     pconf.alpha = 0;
     pconf.vr_scale_factor = 2;
@@ -1287,7 +1285,6 @@ EX void show_vr_demos() {
     pconf.vr_zshift = 0;
     hsm = eHeadset::model_viewing;
     eyes = eEyes::equidistant;
-    start_game();
     popScreenAll();
     });
 
@@ -1297,9 +1294,10 @@ EX void show_vr_demos() {
     hmd_ref_at = hmd_at;
     stop_game();
     set_geometry(gSphere);
-    if(GDIM == 3) geom3::switch_fpp();
     specialland = laHalloween;
     set_variation(eVariation::bitruncated);
+    start_game();
+    if(GDIM == 3) invoke_embed(geom3::seNone);
     pmodel = mdDisk;
     pconf.alpha = 2;
     pconf.vr_scale_factor = 0.5;
@@ -1307,7 +1305,6 @@ EX void show_vr_demos() {
     pconf.vr_zshift = 0;
     hsm = eHeadset::model_viewing;
     eyes = eEyes::equidistant;
-    start_game();
     popScreenAll();
     });
 
@@ -1360,12 +1357,16 @@ EX void enable_button() {
     dialog::addInfo(XLAT("VR initialized correctly"), 0x00C000);
   }
 
+EX string refdist() {
+  E4;
+  hyperpoint h = hmd_at * inverse(hmd_ref_at) * C0;
+  return state ? fts(hypot_d(3, h)) + "m" : "";
+  }
+
 EX void reference_button() {
   if(enabled && among(hsm, eHeadset::reference, eHeadset::model_viewing)) {
-    E4;
-    hyperpoint h = hmd_at * inverse(hmd_ref_at) * C0;
       
-    dialog::addSelItem(XLAT("reset the reference point"), state ? fts(hypot_d(3, h)) + "m" : "", 'r');
+    dialog::addSelItem(XLAT("reset the reference point"), refdist(), 'r');
     dialog::add_action([] { hmd_ref_at = hmd_at; });
     }
   else dialog::addBreak(100);
@@ -1492,7 +1493,7 @@ auto hooka = addHook(hooks_args, 100, readArgs);
 
 #if CAP_CONFIG
 void addconfig() {
-  addsaver(enabled, "vr-enabled");
+  param_b(enabled, "vr-enabled");
 
   param_f(absolute_unit_in_meters, "vr-abs-unit");
 
@@ -1509,11 +1510,11 @@ void addconfig() {
   param_f(vrhr::ui_depth, "vr_ui_depth");
   param_f(vrhr::ui_size, "vr_ui_size");
   
-  param_enum(vrhr::hsm, "vr_headset_mode", "vr_headset_mode", vrhr::hsm)
+  param_enum(vrhr::hsm, "vr_headset_mode", vrhr::hsm)
     ->editable(headset_desc, "VR headset movement", 'h');
-  param_enum(vrhr::eyes, "vr_eyes_mode", "vr_eyes_mode", vrhr::eyes)
+  param_enum(vrhr::eyes, "vr_eyes_mode", vrhr::eyes)
     ->editable(eyes_desc, "VR binocular vision", 'b');
-  param_enum(vrhr::cscr, "vr_screen_mode", "vr_screen_mode", vrhr::cscr)
+  param_enum(vrhr::cscr, "vr_screen_mode", vrhr::cscr)
     ->editable(comp_desc, "VR computer screen", 'c');
   }
 auto hookc = addHook(hooks_configfile, 100, addconfig);
@@ -1621,6 +1622,88 @@ EX void handoff() {
   }
 
 #endif
+
+EX purehookset vr_quickmenu_extensions;
+
+EX void show_vr_quickmenu() {
+  cmode = sm::SIDE | sm::MAYDARK;
+  dialog::init(XLAT("VR quickmenu"));
+  dialog::addHelp(XLAT("These hotkeys can be activated at any time by pressing Alt+key. They are mostly useful when showing VR to someone. Demos can define extra hotkeys."));
+  callhooks(vr_quickmenu_extensions);
+  dialog::display();
+  }
+
+bool vr_keys(int sym, int uni) {
+  #if !ISMOBILE
+  if(!(cmode & sm::NORMAL)) return false;
+  const sdl_keystate_type *keystate = SDL12_GetKeyState(NULL);
+  if(keystate[SDL12(SDLK_LALT, SDL_SCANCODE_LALT)] || keystate[SDL12(SDLK_RALT, SDL_SCANCODE_RALT)])
+    {
+    dialog::key_actions.clear();
+    callhooks(vr_quickmenu_extensions);
+    if(dialog::key_actions.count(uni)) { dialog::key_actions[uni](); return true; }
+    }
+  #endif
+  return false;
+  }
+
+auto hookvr = addHook(vr_quickmenu_extensions, 100, [] {
+  dialog::addSelItem(XLAT("increase camera speed"), fts(camera_speed), ',');
+  dialog::add_action([] { camera_speed *= 1.2; println(hlog, "camera_speed = ", camera_speed); });
+  dialog::addSelItem(XLAT("decrease camera speed"), fts(camera_speed), '.');
+  dialog::add_action([] { camera_speed /= 1.2; println(hlog, "camera_speed = ", camera_speed); });
+  #if CAP_VR
+  if(vrhr::active()) {
+    if(in_perspective()) {
+      dialog::addSelItem(XLAT("increase absolute unit"), fts(vrhr::absolute_unit_in_meters), 'a');
+      dialog::add_action([] {
+        vrhr::absolute_unit_in_meters *= 1.2;
+        walking::eye_level *= 1.2;
+        println(hlog, "vr absolute unit set to ", vrhr::absolute_unit_in_meters);
+        });
+      dialog::addSelItem(XLAT("decrease absolute unit"), fts(vrhr::absolute_unit_in_meters), 'z');
+      dialog::add_action([] {
+        vrhr::absolute_unit_in_meters /= 1.2;
+        walking::eye_level /= 1.2;
+        println(hlog, "vr absolute unit set to ", vrhr::absolute_unit_in_meters);
+        });
+      }
+    else {
+      dialog::addSelItem(XLAT("increase model size"), fts(pconf.vr_scale_factor), 'a');
+      dialog::add_action([] {
+        pconf.vr_scale_factor *= 1.2;
+        println(hlog, "vr scale factor set to ", pconf.vr_scale_factor);
+        });
+      dialog::addSelItem(XLAT("decrease model size"), fts(pconf.vr_scale_factor), 'z');
+      dialog::add_action([] {
+        pconf.vr_scale_factor *= 1.2;
+        println(hlog, "vr scale factor set to ", pconf.vr_scale_factor);
+        });
+      dialog::addSelItem(XLAT("increase Z-shift"), fts(pconf.vr_zshift), 'c');
+      dialog::add_action([] {
+        pconf.vr_zshift += 0.5;
+        });
+      dialog::addSelItem(XLAT("decrease Z-shift"), fts(pconf.vr_zshift), 'd');
+      dialog::add_action([] {
+        pconf.vr_zshift -= 0.5;
+        });
+      }
+    dialog::addBoolItem(XLAT("always show HUD"), always_show_hud, 'x');
+    dialog::add_action([] {
+      always_show_hud = !always_show_hud;
+      println(hlog, "hud ", ONOFF(always_show_hud));
+      });
+    dialog::addSelItem(XLAT("reset VR reference"), refdist(), 'v');
+    dialog::add_action([] {
+      println(hlog, "vr reference reset");
+      vrhr::hmd_ref_at = vrhr::hmd_at;
+      });
+    }
+  #endif
+  dialog::addItem(XLAT("VR quickmenu help"), 'h');
+  dialog::add_action_push(show_vr_quickmenu);
+  })
+  + addHook(hooks_handleKey, 101, vr_keys);
 
 EX }
 }

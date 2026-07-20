@@ -217,8 +217,7 @@ void create_intra_solv() {
   }
 
 void create_intra_120() {
-  patterns::whichCanvas = 'r';
-  patterns::rwalls = 0;
+  ccolor::set_random(0);
   if(intra::in) intra::become();
   else stop_game();
   arcm::current.parse("8,4,6");
@@ -261,8 +260,7 @@ void create_intra_120() {
   }
 
 void create_intra_1440() {
-  patterns::whichCanvas = 'r';
-  patterns::rwalls = 0;
+  ccolor::set_random(0);
   if(intra::in) intra::become();
   else stop_game();
   set_geometry(gCell8);
@@ -330,8 +328,7 @@ vector<reaction_t> portals;
 
 void create_intra_bxe() {
   println(hlog, "called create_intra_bxe");
-  patterns::whichCanvas = 'r';
-  patterns::rwalls = 100;
+  ccolor::set_random(100);
   if(intra::in) intra::become();
   else stop_game();
   hybrid::csteps = 0;
@@ -404,8 +401,7 @@ void recurse_portal_solv2(int r, cell *cl, cell *cr) {
 
 void create_intra_sol() {
   println(hlog, "called create_intra_sol");
-  patterns::whichCanvas = 'r';
-  patterns::rwalls = 100;
+  ccolor::set_random(100);
   if(intra::in) intra::become();
   else stop_game();
 
@@ -456,83 +452,54 @@ void create_intra_sol() {
 
 map<int, cell*> starter;
 
-bool vr_keys(int sym, int uni) {
+void vrqm_ext() {
   if(intra::in && !starter.count(intra::current)) starter[intra::current] = cwt.at;
-  const Uint8 *keystate = SDL12_GetKeyState(NULL);
-  #if CAP_SDL2
-  if(keystate[SDL_SCANCODE_LALT] || keystate[SDL_SCANCODE_RALT]) 
-  #else
-  if(keystate[SDLK_LALT] || keystate[SDLK_RALT])
-  #endif
-    {
-    if(sym == 'e' && intra::in) {
-      println(hlog, "intra::current = ", intra::current);
-      intra::switch_to(2);
-      if(starter.count(intra::current)) cwt.at = centerover = starter[intra::current];
-      fullcenter();
-      View = cspin90(0, 1);
-      playermoved = false;
-      walking::handle();
-      return true;
-      }
-    if(sym == 'h' && intra::in) {
-      intra::switch_to(0);
-      if(starter.count(intra::current)) cwt.at = centerover = starter[intra::current];
-      fullcenter();
-      View = cspin90(0, 1);
-      playermoved = false;
-      walking::handle();
-      return true;
-      }
-    if(sym == 's' && intra::in) {
-      intra::switch_to(6);
-      if(starter.count(intra::current)) cwt.at = centerover = starter[intra::current];
-      fullcenter();
-      View = cspin90(0, 1);
-      playermoved = false;
-      walking::handle();
-      return true;
-      }
-    if(sym == ',') {
-      camera_speed *= 1.2;
-      println(hlog, "camera_speed set to ", camera_speed);
-      return true;
-      }
-    if(sym == '.') {
-      camera_speed /= 1.2;
-      println(hlog, "camera_speed set to ", camera_speed);
-      return true;
-      }
-    #if CAP_VR
-    if(sym == 'a') {
-      vrhr::absolute_unit_in_meters *= 1.2;
-      walking::eye_level *= 1.2;
-      println(hlog, "vr absolute unit set to ", vrhr::absolute_unit_in_meters);
-      return true;
-      }
-    if(sym == 'z') {
-      vrhr::absolute_unit_in_meters /= 1.2;
-      walking::eye_level /= 1.2;
-      println(hlog, "vr absolute unit set to ", vrhr::absolute_unit_in_meters);
-      return true;
-      }
-    #endif
-    if(sym == 'w') {
-      walking::switch_walking();
-      println(hlog, "walking set to ", ONOFF(walking::on));
-      return true;
-      }
-    #if CAP_VR
-    if(sym == 'x') {
-      vrhr::always_show_hud = false;
-      return true;
-      }
-    #endif
-    }
-  return false;
+  dialog::addItem("move to Euclidean", 'e');
+  dialog::add_action([] {
+    println(hlog, "intra::current = ", intra::current);
+    intra::switch_to(2);
+    if(starter.count(intra::current)) cwt.at = centerover = starter[intra::current];
+    fullcenter();
+    View = cspin90(0, 1);
+    playermoved = false;
+    walking::handle();
+    });
+  dialog::addItem("move to hyperbolic", 'h');
+  dialog::add_action([] {
+    intra::switch_to(0);
+    if(starter.count(intra::current)) cwt.at = centerover = starter[intra::current];
+    fullcenter();
+    View = cspin90(0, 1);
+    playermoved = false;
+    walking::handle();
+    });
+  dialog::addItem("move to spherical", 's');
+  dialog::add_action([] {
+    intra::switch_to(6);
+    if(starter.count(intra::current)) cwt.at = centerover = starter[intra::current];
+    fullcenter();
+    View = cspin90(0, 1);
+    playermoved = false;
+    walking::handle();
+    });
+  dialog::addItem("move to Solv", 'y');
+  dialog::add_action([] {
+    intra::switch_to(3);
+    if(starter.count(intra::current)) cwt.at = centerover = starter[intra::current];
+    fullcenter();
+    View = cspin90(0, 1);
+    playermoved = false;
+    walking::handle();
+    });
   }
 
 // all generators will add to the current scene
+
+#if CAP_VR
+#define IF_VR(x) x
+#else
+#define IF_VR(x)
+#endif
 
 auto hooks = 
   // generate scene with H3, H2xE, E3, S2xE (8x6), S3 (16-cell) with floors; runs automatically
@@ -549,6 +516,7 @@ auto hooks =
   // generate Sol with floors to the current scene, runs autimatically
 + arg::add3("-intra-sol", create_intra_sol)
 //+ arg::add3("-intra-more", create_intra_more);
++ arg::add3("-fnkeys-portals", [] { rogueviz::rv_hook(vrhr::vr_quickmenu_extensions, 101, vrqm_ext); })
 + arg::add3("-intra-demo-floors", [] {
   walking::colors_of_floors = {
     0xFFFF40, 0xD0D000,
@@ -574,13 +542,13 @@ auto hooks =
         mapstream::loadMap(s);
         slide_backup(ray::fixed_map, true);
         slide_backup(ray::max_iter_intra, y);
-        #if CAP_VR
+        IF_VR(
         slide_backup(vrhr::hsm, vrhr::eHeadset::holonomy);
         slide_backup(vrhr::eyes, vrhr::eEyes::truesim);
         slide_backup(vrhr::cscr, vrhr::eCompScreen::eyes);
-        #endif
+        )
         starter.clear();
-        rogueviz::rv_hook(hooks_handleKey, 101, vr_keys);
+        rogueviz::rv_hook(vrhr::vr_quickmenu_extensions, 101, vrqm_ext);
         popScreenAll();
         resetGL();
         };
@@ -596,7 +564,7 @@ auto hooks =
       v.push_back(tour::slide{
         s, 10, tour::LEGAL::NONE | tour::QUICKSKIP | tour::QUICKGEO | tour::ALWAYS_TEXT, desc,
         [=] (tour::presmode mode) {
-          setCanvas(mode, '0');
+          setWhiteCanvas(mode);
           if(youtube != "")
             slide_url(mode, 'y', "YouTube link", youtube);
           if(twitter != "")
@@ -630,5 +598,6 @@ auto hooks =
       {loader{"run this visualization", 'r', load("solv-h3-scene.lev", 0.05, 3000)}});
     }));
 }
+#undef IF_VR
 #endif
 }

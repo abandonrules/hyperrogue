@@ -1,3 +1,6 @@
+// Relative Hell: display for the AdS game
+// Copyright (C) 2022-2025 Zeno Rogue, see '../../hyper.cpp' for details
+
 namespace hr {
 
 namespace ads_game {
@@ -7,14 +10,6 @@ color_t shipcolor = 0x2020FFFF;
 cross_result findflat(shiftpoint h) {
   return cross0(current * rgpushxto0(h));
   }
-
-struct cell_to_draw {
-  cross_result center;
-  ld d;
-  cell *c;
-  ads_matrix V;
-  bool operator < (const cell_to_draw& c2) const { return d > c2.d; }
-  };
 
 void apply_duality(shiftmatrix& S) {
   if(use_duality == 1) {
@@ -28,8 +23,19 @@ void apply_duality(shiftmatrix& S) {
     }
   }
 
+vector<ads_object*> under_mouse;
+hyperpoint mousetester;
+
+void view_time(const shiftmatrix& S, ld t, color_t col) {
+  if(!view_proper_times) return;
+  auto S1 = S;
+  if(time_shift) S1.T = rgpushxto0(S1.T * C0) * ypush(time_shift);
+  string str = hr::format(tformat, t / (main_rock ? ds_time_unit : ads_time_unit));
+  queuestr(S1, time_scale, str, col, 8);
+  }
+
 void draw_game_cell(const cell_to_draw& cd) {
-  bool hv = rotspace;
+  bool hv = mtwisted;
   using cellptr = cell*;
   const cellptr& c = cd.c;
   const ads_matrix& V = cd.V;
@@ -54,6 +60,8 @@ void draw_game_cell(const cell_to_draw& cd) {
     });
 
   auto& t = ci.type;
+
+  color_t col = 0;
 
   if(hv) ;
   else if(t == wtGate) {
@@ -92,35 +100,48 @@ void draw_game_cell(const cell_to_draw& cd) {
     for(int v=floor(minv); v<maxv+1; v++) {
       draw_slice(v, v+1, (v & 3) ? 0x080828FF : 0xA04020FF);
       }
+
+    col = 1;
     }
   else {
-    color_t col = 
+    col = 
       t == wtSolid ? 0x603000FF :
       t == wtDestructible ? 0x301800FF :
-      0x181818FF;
+      t == wtBarrier ? 0xC0C0C0FF :
+      empty_color(c);
+
+    color_t out = t == wtNone ? empty_outline(c) : 0xFF;
 
     for(auto h: hlist) curvepoint(h.h);
-    addaura(shiftless(cd.center.h), col >> 8, 0);
-    queuecurve(shiftless(Id), 0x101010FF, col, PPR::WALL);
+    if(col >> 8)
+      addaura(shiftless(cd.center.h), col >> 8, 0);
+    queuecurve(shiftless(Id), out, col, PPR::WALL);
     }
 
-  if(view_proper_times) {
-    string str = hr::format(tformat, cd.center.shift / ads_time_unit);
-    queuestr(shiftless(rgpushxto0(cd.center.h)), .1, str, 0xFF4040, 8);
-    }
+  ld ads_scale = get_scale();
 
-  for(auto& r: ci.rocks) {
-    auto& rock = *r;
+  if(col >> 8) view_time(shiftless(rgpushxto0(cd.center.h)), cd.center.shift, 0xFF4040);
+
+  // need i-loop because new rocks can be created in handle_turret
+
+  for(int i=0; i<isize(ci.rocks); i++) {
+    auto& rock = *ci.rocks[i];
 
     if(!paused) {
-      if(rock.type == oRock && rock.expire < pdata.score) { rock.resource = rtNone; rock.col = rock_color[rtNone]; rock.expire = 999999; }
-      if(rock.type == oResource && rock.expire < pdata.score) { rock.resource = rtNone; rock.col = rsrc_color[rtNone]; rock.shape = rsrc_shape[rtNone]; rock.expire = 999999; }
+      if(rock.type == oRock && expired(rock.expire, pdata)) { rock.resource = rtNone; rock.col = rock_color[rtNone]; rock.expire.score = 999999; }
+      if(rock.type == oResource && expired(rock.expire, pdata)) { rock.resource = rtNone; rock.col = rsrc_color[rtNone]; rock.shape = rsrc_shape[rtNone]; rock.expire.score = 999999; }
       }
     
+    ld ang = 0;
+
+    ads_matrix M;
+
     hybrid::in_actual([&]{
-      dynamicval<eGeometry> b(geometry, gRotSpace);
-      auto h = V * rock.at;
-      rock.pt_main = cross0(current * h);
+      dynamicval<eGeometry> b(geometry, gTwistedProduct);
+      M = V * rock.at;
+      rock.pt_main = cross0(current * M);
+      if(rock.type == oTurret) handle_turret(&rock, ang);
+      if(ang) M = M * spin(ang);
       });
     
     if(rock.pt_main.shift < rock.life_start || rock.pt_main.shift > rock.life_end) continue;
@@ -130,11 +151,13 @@ void draw_game_cell(const cell_to_draw& cd) {
     auto& shape = *rock.shape;
     for(int i=0; i<isize(shape); i += 2) {
       hybrid::in_actual([&]{
-        auto h = V * rock.at * rots::uxpush(shape[i] * ads_scale) * rots::uypush(shape[i+1] * ads_scale);
+        auto h = M * twist::uxpush(shape[i] * ads_scale) * twist::uypush(shape[i+1] * ads_scale);
         cross_result f = cross0(current * h);
         rock.pts.push_back(f);
         });
       }
+
+    if(rock.type != oParticle && pointcrash(mousetester, rock.pts)) under_mouse.push_back(&rock);
 
     if(hv) {
       ld t = rock.life_start;
@@ -147,7 +170,7 @@ void draw_game_cell(const cell_to_draw& cd) {
         if((shift+z) < rock.life_start) continue;
         if((shift+z) > rock.life_end) continue;
         for(int i=0; i<isize(shape); i += 2) {
-          auto h = rots::uxpush(shape[i] * ads_scale) * rots::uypush(shape[i+1] * ads_scale) * C0;
+          auto h = twist::uxpush(shape[i] * ads_scale) * twist::uypush(shape[i+1] * ads_scale) * C0;
           curvepoint(h);
           }
         curvepoint_first();
@@ -162,62 +185,78 @@ void draw_game_cell(const cell_to_draw& cd) {
       curvepoint(rock.pts[0].h);
       queuecurve(shiftless(Id),
         rock.type == oMissile ? missile_color :
+        rock.type == oTurretMissile ? 0xFF8000FF :
         rock.type == oParticle ? rock.col :
         0x000000FF, rock.col, obj_prio[rock.type]);
       }
 
-    if(view_proper_times && rock.type != oParticle) {
-      string str = hr::format(tformat, rock.pt_main.shift / ads_time_unit);
-      queuestr(shiftless(rgpushxto0(rock.pt_main.h)), .1, str, 0xFFFFFF, 8);
-      }
+    if(rock.type != oParticle) view_time(shiftless(rgpushxto0(rock.pt_main.h)), rock.pt_main.shift, 0xFFFFFF);
     }
-  
-  /* todo: binary search */
-  if(paused) for(auto& rock: ci.shipstates) {
-    cross_result cr;
 
-    if(hv) {
-      auto& shape = shape_ship;
-      for(int i=0; i<isize(shape); i += 2) {
-        auto h = rots::uxpush(shape[i] * ads_scale) * rots::uypush(shape[i+1] * ads_scale) * C0;
+  ld last_shown = -HUGE_VAL;
+  if(paused || which_cross) if(hv) for(auto& rock: ci.shipstates) {
+
+    if(rock.start < last_shown + ship_history_period) continue;
+    last_shown = rock.start;
+
+    render_ship_parts([&] (const hpcshape& sh, color_t col, int sym) {
+      int dx = sym ? -1 : 1;
+      for(int i=sh.s; i<sh.e; i++) {
+        auto h = twist::uxpush(cgi.hpc[i][0]) * twist::uypush(cgi.hpc[i][1] * dx) * C0;
         curvepoint(h);
         }
-      curvepoint_first();
       ads_matrix S = current * V * rock.at;
       S = S * spin(-(rock.ang+90)*degree);
       apply_duality(S);
       S = S * spin(+(rock.ang+90)*degree);
-      queuecurve(S, shipcolor, 0, PPR::LINE);
-      continue;
+      queuecurve(S, col, 0, PPR::LINE);
+      });
+
+    }
+
+  if(paused || which_cross) if(!hv && !ci.shipstates.empty()) {
+    cross_result cr;
+
+    int lo = 0, hi = isize(ci.shipstates)-1;
+    while(lo < hi) {
+      auto med = (lo + hi + 1) / 2;
+      hybrid::in_actual([&]{
+        dynamicval<eGeometry> b(geometry, gTwistedProduct);
+        auto h = V * ci.shipstates[med].at;
+        cr = cross0(current * h);
+        });
+      if(cr.shift < -1e-6) hi = med - 1;
+      else lo = med;
       }
 
+    auto& rock = ci.shipstates[lo];
+
     hybrid::in_actual([&]{
-      dynamicval<eGeometry> b(geometry, gRotSpace);
+      dynamicval<eGeometry> b(geometry, gTwistedProduct);
       auto h = V * rock.at;
       cr = cross0(current * h);
       });
-        
-    if(cr.shift < -1e-6 || cr.shift > rock.duration + 1e-6) continue;
-    vector<hyperpoint> pts;
 
-    auto& shape = shape_ship;
-    for(int i=0; i<isize(shape); i += 2) {
-      hybrid::in_actual([&]{
-        auto h = V * rock.at * rgpushxto0(normalize(hyperpoint(shape[i] * ads_scale, shape[i+1] * ads_scale, 1, 0)));
-        pts.push_back(cross0(current * h).h);
-        });
-      }
+    bool ok = cr.shift >= -1e-6 && cr.shift < rock.duration + 1e-6;
 
-    for(auto h: pts) curvepoint(h);
-    curvepoint(pts[0]);
-    queuecurve(shiftless(Id), 0xFF, shipcolor, PPR::MONSTER_FOOT);
+    if(ok) render_ship_parts([&] (const hpcshape& sh, color_t col, int sym) {
+      int dx = sym ? -1 : 1;
+      vector<hyperpoint> pts;
+      for(int i=sh.s; i<sh.e; i++) {
+        auto& ac = cgi.hpc;
+        hybrid::in_actual([&]{
+          auto h = V * rock.at * rgpushxto0(normalize(hyperpoint(ac[i][0], ac[i][1] * dx, 1, 0)));
+          pts.push_back(cross0(current * h).h);
+          });
+        }
 
-    if(view_proper_times) {
-      string str = hr::format(tformat, (cr.shift + rock.start) / ads_time_unit);
-      queuestr(shiftless(rgpushxto0(cr.h)), .1, str, 0xC0C0C0, 8);
-      }
+      for(auto h: pts) curvepoint(h);
+      queuecurve(shiftless(Id), 0xFF, col, PPR::MONSTER_FOOT);
+      });
+
+    if(ok) view_time(shiftless(rgpushxto0(cr.h)), cr.shift + rock.start, 0xC0C0C0);
     }
-  
+
   if(paused && c == vctr_ship && !game_over && !in_replay && !hv) {
     cross_result cr;
     hybrid::in_actual([&]{
@@ -255,6 +294,9 @@ void view_footer() {
 
 void view_ads_game() {
   displayed.clear();
+  cds_last = std::move(cds); cds.clear();
+  mousetester = kleinize(unshift(mouseh));
+  under_mouse.clear();
   
   bool hv = mhybrid;
 
@@ -315,10 +357,16 @@ void view_ads_game() {
       });
     
     int i = 0;
+    ld lastd = -10;
+
     while(!dq.empty()) {
 
-      i++; if(i > draw_per_frame) break;
+      i++;
       auto& cd = dq.top();
+      if(i > draw_per_frame && cd.d > lastd + 1e-4) break;
+      if(i > draw_per_frame + draw_per_frame_equal) break;
+      lastd = cd.d;
+      cds[cd.c] = cd;
       draw_game_cell(cd);
 
       cell *c = cd.c;
@@ -342,23 +390,19 @@ void view_ads_game() {
 
     if(!game_over && !paused && !in_replay && !hv && !which_cross) {
       poly_outline = 0xFF;
-      if(ship_pt < invincibility_pt) {
+      if(ship_pt < invincibility_pt && invincibility_pt < HUGE_VAL) {
         ld u = (invincibility_pt-ship_pt) / ads_how_much_invincibility;
-        poly_outline = gradient(shipcolor, rsrc_color[rtHull], 0, 0.5 + cos(5*u*TAU), 1);
+        poly_outline = gradient(shipcolor, rsrc_color[rtHull], 1, cos(5*u*TAU), -1);
         }
-      queuepolyat(shiftless(spin(ang*degree) * Id), make_shape(), shipcolor, PPR::MONSTER_HAIR);
+      render_ship_parts([&] (const hpcshape& sh, color_t col, int sym) {
+        shiftmatrix M = shiftless(spin(ang*degree) * Id);
+        if(sym) M = M * MirrorY;
+        queuepolyat(M, sh, col, PPR::MONSTER_HAIR);
+        });
       poly_outline = 0xFF;
 
-      if(view_proper_times) {
-        string str = hr::format(tformat, ship_pt / ads_time_unit);
-        queuestr(shiftless(Id), .1, str, 0xFFFFFF, 8);
-        }
-      }
-    
-    if(paused && view_proper_times) {
-      string str = hr::format(tformat, view_pt / ads_time_unit);
-      queuestr(shiftless(Id), .1, str, 0xFFFF00, 8);
-      }
+      view_time(shiftless(Id), ship_pt, 0xFFFFFF);
+      }    
     }
 
   copyright_shown = "";

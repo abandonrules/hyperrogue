@@ -88,6 +88,7 @@ string ghost_prefix = "default";
 void hread(hstream& hs, ghostmoment& m) {
   int id;
   hread(hs, m.step, id, m.alpha, m.distance, m.beta, m.footphase);
+  if(id < 0 || id >= isize(mapstream::cellbyid)) throw hr_exception("error reading a ghost moment");
   m.where_cell = mapstream::cellbyid[id];
   }
 
@@ -903,7 +904,7 @@ EX string racetimeformat(int t) {
 extern int playercfg;
 
 EX void load_official_track() {
-  fhstream f("officials.data", "rb");
+  fhstream f(find_file("officials.data"), "rb");
   hread(f, f.vernum);
   map<eLand, string> tracks;
   hread(f, tracks);
@@ -917,14 +918,14 @@ EX void load_official_track() {
   #if CAP_EDIT
   mapstream::loadMap(sf);
   #endif
-  cheater = autocheat = 0;
+  cheater = 0;
   official_race = true;
   }
 
 void track_chooser(bool official) {
   cmode = sm::NOSCR;
   gamescreen();
-  dialog::init(XLAT(official ? "Official tracks" : "Generate a racing track"));
+  dialog::init(official ? XLAT("play on an official track") : XLAT("generate a random track"));
   
   map<char, eLand> landmap;
   
@@ -943,6 +944,7 @@ void track_chooser(bool official) {
       multi::players = playercfg;
       specialland = l;
       if(!racing::on) switch_game_mode(rg::racing);
+      if(l == laCrossroads) land_structure = lsNiceWalls;
       if(official) {
         racing::on = false;
         load_official_track();
@@ -1038,10 +1040,15 @@ void race_projection() {
   if(GDIM == 2) {
     dialog::addMatrixItem(XLAT("race angle"), race_angle.get(), 'a');
     dialog::add_action([] () {
-      dialog::editMatrix(race_angle.get(), XLAT("model orientation"), "", GDIM);
+      dialog::editMatrix(race_angle.get(), XLAT("race angle"), "", GDIM);
+      auto& d = dialog::get_di();
       auto q = rot_inverse(race_angle) * pconf.mori();
-      auto last = dialog::get_ne().reaction;
-      dialog::get_ne().reaction = [q, last] () { last(); pconf.mori() = race_angle * q; };
+      auto last = d.reaction;
+      d.reaction = [q, last] () {
+        if(last) last();
+        pconf.mori() = race_angle * q;
+        if(racing::on) set_view();
+        };
       });
     }
 
@@ -1100,7 +1107,7 @@ void race_projection() {
       add_thurston_race(XLAT("S2xE"), [] { set_geometry(gSphere); set_variation(eVariation::bitruncated); set_geometry(gProduct); });
       add_thurston_race(XLAT("H2xE"), [] { set_geometry(gNormal); set_variation(eVariation::bitruncated); set_geometry(gProduct); });
       add_thurston_race(XLAT("Nil"), [] { stop_game(); nilv::nilperiod[0] = 0; set_geometry(gNil); });
-      add_thurston_race(XLAT("PSL(2,R)"), [] { set_geometry(gNormal); set_variation(eVariation::pure); set_geometry(gRotSpace); });
+      add_thurston_race(XLAT("PSL(2,R)"), [] { set_geometry(gNormal); set_variation(eVariation::pure); hybrid::enable_rotspace(); });
       }
     else {
       #if CAP_SOLV
@@ -1350,7 +1357,7 @@ void draw_ghost(ghost& ghost) {
 
 shiftmatrix racerel(ld rel) {
   int bsize = vid.fsize * 2;
-  return shiftless(atscreenpos(bsize, vid.yres - bsize - rel * (vid.yres - bsize*2) / 100, bsize) * spin90());
+  return atscreenpos(bsize, vid.yres - bsize - rel * (vid.yres - bsize*2) / 100, bsize) * spin90();
   }
 
 EX int get_percentage(cell *c) {
@@ -1377,12 +1384,12 @@ EX void drawStats() {
   
   int bsize = vid.fsize * 2;
   for(int y: {bsize, vid.yres - bsize}) {
-    curvepoint(atscreenpos(bsize, y, bsize) * C0);
-    curvepoint(atscreenpos(bsize/2, y, bsize) * C0);
-    curvepoint(atscreenpos(bsize*3/2, y, bsize) * C0);
-    curvepoint(atscreenpos(bsize, y, bsize) * C0);
+    curvepoint(eupoint(bsize, y));
+    curvepoint(eupoint(bsize/2, y));
+    curvepoint(eupoint(bsize*3/2, y));
+    curvepoint(eupoint(bsize, y));
     }
-  queuecurve(shiftless(Id), 0xFFFFFFFF, 0, PPR::ZERO);
+  queuecurve(atscreenpos(0,0), 0xFFFFFFFF, 0, PPR::ZERO);
   
   for(auto& ghost: ghostset) draw_ghost_state(ghost);
   

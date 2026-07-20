@@ -112,6 +112,7 @@ MONFLAGCHECK(isRatling, flag & CF_RATLING)
 MONFLAGCHECK(isGhostMover, flag & CF_GHOSTMOVER)
 MONFLAGCHECK(isPowerMonster, flag & CF_POWER)
 MONFLAGCHECK(hasFacing, flag & CF_FACING)
+MONFLAGCHECK(isFrog, flag & CF_FROG)
 
 ITEMFLAGCHECK(isElementalShard, flag & IF_SHARD)
 ITEMFLAGCHECK(itemBurns, !(flag & IF_FIREPROOF))
@@ -213,7 +214,7 @@ EX bool isFlying(eMonster m) {
   }
 
 EX bool survivesChasm(eMonster m) {
-  return isFlying(m);
+  return isFlying(m) || isAnyIvy(m);
   }
 
 EX bool ignoresPlates(eMonster m) {
@@ -259,10 +260,6 @@ EX bool haveRangedOrb() {
     items[itRevolver] || items[itOrbStunning] || items[itStrongWind] ||
     items[itOrbDomination] || items[itOrbNature] || items[itOrbDash] ||
     items[itOrbMorph] || items[itOrbPhasing];
-  }
-
-EX bool isFriendlyGhost(eMonster m) {
-  return m == moFriendlyGhost || (markEmpathy(itOrbAether) && isFriendly(m));
   }
 
 EX bool isGhostAether(eMonster m) {
@@ -344,14 +341,33 @@ EX bool highwall(cell *c) {
   return winf[c->wall].glyph == '#' || c->wall == waClosedGate;
   }
 
-EX int chasmgraph(cell *c) {
-  if(c->wall == waChasm || c->wall == waInvisibleFloor) return 2;
-  if(isChasmy(c)) return 1;
-  if(isWateryOrBoat(c)) return 1;
-  if(c->wall == waShallow) return 1;
-  if(wmescher && c->wall == waBarrier && c->land == laOceanWall) return 1;
-  if(c->wall == waReptileBridge) return 1;
-  return 0;
+EX spatial_info get_spatial_info(cell *c) {
+  #define F(x) Flag((int) SIDE::x)
+  if(cellUnstable(c))
+    return spatial_info{SIDE::FLOOR, SIDE::FLOOR, 0, 0};
+  if(c->wall == waChasm || c->wall == waInvisibleFloor)
+    return spatial_info{SIDE::INFDEEP, SIDE::INFDEEP, 0, 0};
+  if(c->wall == waBarrier && wmescher && c->land == laOceanWall)
+    return spatial_info{SIDE::WATERLEVEL, SIDE::DEEP, F(DEEP), 0};
+  if(c->wall == waReptile)
+    return spatial_info{SIDE::FLOOR, SIDE::FLOOR, F(FLOOR) | F(DEEP), 0};
+  if(c->wall == waShallow)
+    return spatial_info{SIDE::WATERLEVEL, SIDE::SHALLOW, F(SHALLOW) | F(DEEP), 0};
+  if(isWateryOrBoat(c) || isChasmy(c))
+    return spatial_info{SIDE::WATERLEVEL, SIDE::DEEP, F(DEEP), 0};
+  if(among(c->wall, waReptileBridge, waGargoyleFloor, waGargoyleBridge, waTempFloor, waTempBridge, waPetrifiedBridge, waFrozenLake))
+    return spatial_info{SIDE::WATERLEVEL, SIDE::DEEP, F(WATERLEVEL) | F(DEEP), 0};
+  int slev = snakelevel(c);
+  if(slev == 1)
+    return spatial_info{SIDE::RED1, SIDE::RED1, F(RED1) | F(FLOOR) | F(WATERLEVEL) | F(SHALLOW) | F(DEEP), 1};
+  if(slev == 2)
+    return spatial_info{SIDE::RED2, SIDE::RED2, F(RED1) | F(RED2) | F(FLOOR) | F(WATERLEVEL) | F(SHALLOW) | F(DEEP), 2};
+  if(slev == 3)
+    return spatial_info{SIDE::RED3, SIDE::RED3, F(RED1) | F(RED2) | F(RED3) | F(FLOOR) | F(WATERLEVEL) | F(SHALLOW) | F(DEEP), 3};
+  if(highwall(c) && !conegraph(c) && c->wall != waRose)
+    return spatial_info{SIDE::WALL, SIDE::WALL, F(WALL) | F(FLOOR) | F(WATERLEVEL) | F(SHALLOW) | F(DEEP), 0};
+  return spatial_info{SIDE::FLOOR, SIDE::FLOOR, F(FLOOR) | F(WATERLEVEL) | F(SHALLOW) | F(DEEP), 0};
+  #undef F
   }
 
 EX bool conegraph(cell *c) {
@@ -391,6 +407,15 @@ EX bool isDie(eMonster m) {
 
 EX bool isDie(eWall w) {
   return among(w, waRichDie, waHappyDie);
+  }
+
+EX bool looks_like_player(eMonster m) {
+  return among(m, moPlayer, moMimic, moIllusion, moShadow);
+  }
+
+EX int halfvine_direction(cell *c) {
+  for(int t=0; t<c->type; t++) if(c->move(t) && c->move(t)->wall == c->wall) return t;
+  return -1;
   }
 
 }

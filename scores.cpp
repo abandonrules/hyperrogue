@@ -8,7 +8,9 @@
 #include "hyper.h"
 #if CAP_SAVE
 
-namespace hr { namespace scores {
+namespace hr {
+
+EX namespace scores {
 
 vector<score> scores;
 score *currentgame;
@@ -16,18 +18,24 @@ score *currentgame;
 int scorefrom = 0;
 bool scorerev = false;
 
+int which_mode;
+
 string csub(const string& str, int q) {
   int i = 0;
-  for(int j=0; j<q && i<isize(str); j++) getnext(str.c_str(), i);
+  for(int j=0; j<q && i<isize(str); j++) getnext(str, i);
   return str.substr(0, i);
   }
 
+vector<int> column_width(POSSCORE+1, 4);
+
 int colwidth(int scoredisplay) {
-  if(scoredisplay == 0) return 5;
+  return column_width[scoredisplay];
+  /* if(scoredisplay == 0) return 5;
   if(scoredisplay == 1) return 16;
   if(scoredisplay == 5) return 8;
   if(scoredisplay == POSSCORE) return 8;
-  return 4;
+  if(scoredisplay == 68) return yasc_width;
+  return 4; */
   }
 
 bool isHardcore(score *S) {
@@ -62,6 +70,8 @@ int modediff(score *S) {
   }
     
 string modedesc(score *S) {
+  modecode_t mc = S->box[scores::MODECODE_BOX];
+  if(mc && mode_description_of.count(mc)) return mode_description_of[mc];
   eGeometry g = (eGeometry) S->box[116]; 
   if(S->box[238]) g = gSphere;
   if(S->box[239]) g = gElliptic;
@@ -83,7 +93,7 @@ string displayfor(int scoredisplay, score* S, bool shorten = false) {
     if(scoredisplay == POSSCORE) return "mode";
     string str = XLATN(boxname[scoredisplay]);
     if(!shorten) return str;
-    if(scoredisplay == 0 || scoredisplay == 65) return XLAT("time");
+    if(scoredisplay == 65) return XLAT("time");
     if(scoredisplay == 2) return "$$$";
     if(scoredisplay == 3) return XLAT("kills");
     if(scoredisplay == 4) return XLAT("turns");
@@ -91,9 +101,10 @@ string displayfor(int scoredisplay, score* S, bool shorten = false) {
     if(scoredisplay == 67) return XLAT("cheats");
     if(scoredisplay == 66) return XLAT("saves");
     if(scoredisplay == 197) return XLAT("players");
+    if(scoredisplay == 68) return XLAT("where");
     return csub(str, 5);
     }
-  if(scoredisplay == 0 || scoredisplay == 65) {
+  if(scoredisplay == 65) {
     char buf[20];
     int t = S->box[0];
     if(t >= 3600) 
@@ -103,6 +114,11 @@ string displayfor(int scoredisplay, score* S, bool shorten = false) {
     return buf;
     }
   if(scoredisplay == POSSCORE) return modedesc(S);
+  if(scoredisplay == 68) {
+    eLand which = eLand(S->box[68]);
+    if(which >= landtypes || which < 0) return "fail";
+    return S->yasc_message + XLAT(" in %the1", which);
+    }
   if(scoredisplay == 1) {
     time_t tim = S->box[1];
     char buf[128]; strftime(buf, 128, "%c", localtime(&tim));
@@ -123,7 +139,7 @@ void showPickScores() {
 
   scorerev = false;
 
-  for(int i=0; i<=POSSCORE; i++) {
+  for(int i=1; i<=POSSCORE; i++) {
     int scoredisplay = i;
     if(!fakebox[scoredisplay]) {
       string s = displayfor(scoredisplay, NULL);
@@ -145,7 +161,7 @@ void showPickScores() {
     dialog::addItem(vi.first, dialog::list_fake_key++);
     dialog::add_action([&vi] {
       int scoredisplay = vi.second;
-      for(int i=0; i<=POSSCORE; i++)
+      for(int i=1; i<=POSSCORE; i++)
         if(columns[i] == scoredisplay) swap(columns[i], columns[curcol]);
       popScreen();
       });
@@ -157,32 +173,53 @@ void showPickScores() {
   mouseovers = dialog::infix;
   keyhandler = [] (int sym, int uni) {
     dialog::handleNavigation(sym, uni);
-    if(dialog::editInfix(uni)) dialog::list_skip = 0;
+    if(dialog::editInfix(sym, uni)) dialog::list_skip = 0;
     else if(doexiton(sym, uni)) popScreen();
     };
   }
+
+EX int scale = 2;
+
+int first_col = 0;
 
 void show() {
 
   if(columns.size() == 0) {
     columns.push_back(POSSCORE);
-    for(int i=0; i<POSSCORE; i++) columns.push_back(i);
+
+    for(int j=0; j<(int) scores::bpGUARD; j++)
+    for(int i=1; i<POSSCORE; i++) if(!fakebox[i] && boxprio[i] == j) {
+      columns.push_back(i);
+      }
     }
-  int y = vid.fsize * 5/2;
-  int bx = vid.fsize;
+  int score_size = vid.fsize / scale;
+  int y = score_size * 5/2;
+  int bx = score_size;
   getcstat = 0;
   
-  displaystr(bx*4, vid.fsize, 0, vid.fsize, "#", forecolor, 16);
-  displaystr(bx*8, vid.fsize, 0, vid.fsize, XLAT("ver"), forecolor, 16);
+  displaystr(bx*4, score_size, 0, score_size, "#", forecolor, 16);
+  displaystr(bx*8, score_size, 0, score_size, XLAT("ver"), forecolor, 16);
   
+  bool not_shown = false;
+  if(curcol < first_col) first_col = curcol;
+  int numcol = isize(columns);
+
   int at = 9;
-  for(int i=0; i<=POSSCORE; i++) {
+  for(int i=first_col; i<numcol; i++) {
     int c = columns[i];
-    if(bx*at > vid.xres) break;
-    if(displaystr(bx*at, vid.fsize, 0, vid.fsize, displayfor(c, NULL, true), i == curcol ? 0xFFD500 : forecolor, 0))
+    if(bx*at > vid.xres) {
+      not_shown = i <= curcol;
+      break;
+      }
+    string s = displayfor(c, NULL, true);
+    auto& cw = column_width[c];
+    cw = max(cw, textwidth(score_size, s) / bx + 1);
+    if(displaystr(bx*at, score_size, 0, score_size, s, i == curcol ? 0xFFD500 : forecolor, 0))
       getcstat = 1000+i;
     at += colwidth(c);
     }
+
+  vector<int> next_column_width(POSSCORE+1, 0);
   
   if(scorefrom < 0) scorefrom = 0;
   int id = 0;
@@ -192,6 +229,8 @@ void show() {
     if(id >= isize(scores)) break;
         
     score& S(scores[id]);
+
+    if(S.box[MODECODE_BOX] != which_mode && which_mode != -1) { id++; continue; }
     
     if(omit) { omit--; rank++; id++; continue; }
     
@@ -205,52 +244,67 @@ void show() {
     
 
     rank++;
-    displaystr(bx*4,  y, 0, vid.fsize, its(rank), col, 16);
+    displaystr(bx*4,  y, 0, score_size, its(rank), col, 16);
     
-    displaystr(bx*8,  y, 0, vid.fsize, S.ver, col, 16);
+    displaystr(bx*8,  y, 0, score_size, S.ver, col, 16);
 
     int at = 9;
-    for(int i=0; i<=POSSCORE; i++) {
+    for(int i=first_col; i<numcol; i++) {
       int c = columns[i];
       if(bx*at > vid.xres) break;
-      at += colwidth(c);
-      if(displaystr(bx*(at-1), y, 0, vid.fsize, displayfor(c, &S), col, 16))
-        getcstat = 1000+i;
+      string s = displayfor(c, &S);
+      auto& ncw = next_column_width[c];
+      ncw = max(ncw, textwidth(score_size, s) / bx + 1);
+      if(c == 68) {
+        if(displaystr(bx*at, y, 0, score_size, s, col, 0))
+          getcstat = 1000+i;
+        at += colwidth(c);
+        }
+      else {
+        at += colwidth(c);
+        if(displaystr(bx*(at-1), y, 0, score_size, s, col, 16))
+          getcstat = 1000+i;
+        }
       }
 
-    y += vid.fsize*5/4; id++;
+    y += score_size*5/4; id++;
     }
 
+  if(not_shown) first_col++;
+
+  column_width = next_column_width;
   int i0 = vid.yres - vid.fsize;
   int xr = vid.xres / 80;
 
-  displayButton(xr*10, i0, IFM("s - ") + XLAT("sort"), 's', 8);
-  displayButton(xr*30, i0, IFM("t - ") + XLAT("choose"), 't', 8);
-  displayButton(xr*50, i0, IFM(dialog::keyname(SDLK_ESCAPE) + " - ") + XLAT("go back"), '0', 8);
+  displayButton(xr*1, i0, IFM("s - ") + XLAT("sort"), 's', 0);
+  displayButton(xr*15, i0, IFM("t - ") + XLAT("choose") + ": " +  displayfor(columns[curcol], NULL, false), 't', 0);
+  displayButton(xr*60, i0, IFM("z - ") + XLAT("zoom"), 'z', 16);
+  displayButton(xr*79, i0, IFM(dialog::keyname(SDLK_ESCAPE) + " - ") + XLAT("go back"), '0', 16);
 
-  keyhandler = [] (int sym, int uni) {
+  keyhandler = [numcol] (int sym, int uni) {
     if(DKEY == SDLK_LEFT || uni == 'h' || uni == 'a') {
       scorerev = false;
       if(curcol > 0) curcol--;
       }
     else if(DKEY == SDLK_RIGHT || uni == 'l' || uni == 'd') {
       scorerev = false;
-      if(curcol < POSSCORE) curcol++;
+      if(curcol < numcol - 1) curcol++;
       }
     else if(sym >= 1000 && sym <= 1000+POSSCORE) {
       scorerev = false;
       curcol = sym - 1000;
       }
-    else if(uni == 't') { dialog::infix = ""; pushScreen(showPickScores); }
+    else if(uni == 't' || is_joy_index(sym, deck::enter)) { dialog::infix = ""; pushScreen(showPickScores); }
     else if(DKEY == SDLK_UP || uni == 'k' || uni == 'w')
       scorefrom -= 5;
     else if(DKEY == SDLK_DOWN || uni == 'j' || uni == 'x')
       scorefrom += 5;
+    else if(uni == 'z' || is_joy_index(sym, deck::alt_enter)) scale = 3 - scale;
     else if(sym == PSEUDOKEY_WHEELUP)
       scorefrom--;
     else if(sym == PSEUDOKEY_WHEELDOWN)
       scorefrom++;
-    else if(uni == 's') {
+    else if(uni == 's' || is_joy_index(sym, deck::space)) {
       if(scorerev) reverse(scores.begin(), scores.end());
       else {
         scorerev = true;
@@ -260,27 +314,27 @@ void show() {
         }
       }
     else if(doexiton(sym, uni)) popScreen();
-
-    static int scoredragy;
-    static bool lclicked;
-    
-    if(mousepressed) {
-      if(!lclicked) {
-        // scoredragx = mousex;
-        scoredragy = mousey;
-        }
-  
-      else {
-        while(mousey > scoredragy + vid.fsize) scoredragy += vid.fsize, scorefrom--;
-        while(mousey < scoredragy - vid.fsize) scoredragy -= vid.fsize, scorefrom++;
-        }
-
-      lclicked = mousepressed;
-      }
     };
+
+  static int scoredragy;
+  static bool lclicked;
+  if(mousepressed) {
+    if(!lclicked) {
+      // scoredragx = mousex;
+      scoredragy = mousey;
+      }
+
+    else {
+      while(mousey > scoredragy + vid.fsize) scoredragy += vid.fsize, scorefrom--;
+      while(mousey < scoredragy - vid.fsize) scoredragy -= vid.fsize, scorefrom++;
+      }
+
+    lclicked = mousepressed;
+    }
+  else lclicked = false;
   }
 
-void load() {
+void load_only() {
   if(scorefile == "") return;
   scores.clear();
   FILE *f = fopen(scorefile.c_str(), "rt");
@@ -289,9 +343,11 @@ void load() {
     addMessage(s0 + "Could not open the score file: " + scorefile);
     return;
     }
+  string *yasc = nullptr;
   while(!feof(f)) {
-    char buf[120];
-    if(fgets(buf, 120, f) == NULL) break;
+    const int buflen = 1200;
+    char buf[buflen];
+    if(fgets(buf, buflen, f) == NULL) break;
     if(buf[0] == 'H' && buf[1] == 'y') {
       score sc; bool ok = true;
       sc.box[MAXBOX-1] = 0;
@@ -320,18 +376,39 @@ void load() {
       if(sc.box[2] == 0) continue; // do not list zero scores
       sc.box[POSSCORE] = modediff(&sc);
       
-      if(ok && boxid > 20) scores.push_back(sc);
+      if(ok && boxid > 20) {
+        scores.push_back(sc);
+        yasc = &scores.back().yasc_message;
+        }
+      }
+    if(buf[0] == 'Y' && buf[1] == 'A' && buf[2] == 'S' && buf[3] == 'C' && buf[4] == ' ') {
+      for(int i=5; i<buflen; i++) if(buf[i] == '\n' || buf[i] == '\r') buf[i] = 0;
+      *yasc = buf+5;
       }
     }
 
+  fclose(f);
+
+  qty_scores_for.clear();
+  for(auto s: scores::scores) {
+    int modeid = s.box[scores::MODECODE_BOX];
+    qty_scores_for[get_identify(modeid)]++;
+    }
+  }
+
+void load() {
+  load_only();
+  which_mode = -1;
+
+  saved_modecode = modecode();
   saveBox();
-  score sc; 
+  score sc;
   for(int i=0; i<POSSCORE; i++) sc.box[i] = save.box[i];
   sc.box[POSSCORE] = 0;
   sc.box[MAXBOX-1] = 1; sc.ver = "NOW";
+  sc.yasc_message = canmove ? "on the run" : yasc_message;
   scores.push_back(sc);
   
-  fclose(f);
   clearMessages();
   // addMessage(its(isize(scores))+" games have been recorded in "+scorefile);
   pushScreen(show);
@@ -343,7 +420,11 @@ void load() {
     });
   }
 
-}}
+EX }
+
+EX map<int, int> qty_scores_for;
+
+}
 
 #endif
 

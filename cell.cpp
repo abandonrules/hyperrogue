@@ -10,8 +10,18 @@
 #include "hyper.h"
 namespace hr {
 
+EX debugflag debug_map_warnings = {"map_warnings", true};
+EX debugflag debug_map_errors = {"map_errors", true};
+
+EX debugflag debug_map_details = {"map_details"};
+EX debugflag debug_map_numerical = {"map_numerical"};
+EX debugflag debug_map_create = {"map_create"};
+
+
 #if HDR
 extern int default_levs();
+
+constexpr int PATTERN_INVALID = -1;
 
 struct hrmap {
   virtual heptagon *getOrigin() { return NULL; }
@@ -19,7 +29,6 @@ struct hrmap {
   virtual ~hrmap() { }
   virtual vector<cell*>& allcells();
   virtual void verify() { }
-  virtual void on_dim_change() { }
   virtual bool link_alt(heptagon *h, heptagon *alt, hstate firststate, int dir);
   virtual void extend_altmap(heptagon *h, int levs = default_levs(), bool link_cdata = true);
   heptagon *may_create_step(heptagon *h, int direction) {
@@ -27,6 +36,8 @@ struct hrmap {
     return create_step(h, direction);
     }
   virtual heptagon *create_step(heptagon *h, int direction);
+  /** reinitialize the map after swapping dimensions */
+  virtual void reinit() {}
 protected:
   virtual transmatrix relative_matrixh(heptagon *h2, heptagon *h1, const hyperpoint& hint);
   virtual transmatrix relative_matrixc(cell *c2, cell *c1, const hyperpoint& hint);
@@ -82,6 +93,12 @@ public:
   transmatrix adjmod(heptagon *h, int i) { return adj(h, gmod(i, h->type)); }
   transmatrix iadjmod(cell *c, int i) { return iadj(c, gmod(i, c->type)); }
   transmatrix iadjmod(heptagon *h, int i) { return iadj(h, gmod(i, h->type)); }
+
+  /** this takes a large closed manifold M that is a quotient of this, and returns a unique identifier of the cell corresponding to M
+   *  returns PATTERN_INVALID if not implemented or impossible */
+  virtual int pattern_value(cell *c) { return PATTERN_INVALID; }
+
+  virtual struct backed_map* get_backmap() { return nullptr; }
   };
 
 /** hrmaps which are based on regular non-Euclidean 2D tilings, possibly quotient  
@@ -89,7 +106,7 @@ public:
  *  Liskov substitution warning: maps which produce both tiling like above and 3D tilings
  *  (e.g. Euclidean and Crystal) also inherit from hrmap_standard
  **/
-struct hrmap_standard : hrmap {
+struct hrmap_standard : hrmap, dim_listener {
   void draw_at(cell *at, const shiftmatrix& where) override;
   transmatrix relative_matrixh(heptagon *h2, heptagon *h1, const hyperpoint& hint) override;
   transmatrix relative_matrixc(cell *c2, cell *c1, const hyperpoint& hint) override;
@@ -104,6 +121,7 @@ struct hrmap_standard : hrmap {
   transmatrix master_relative(cell *c, bool get_inverse) override;
   bool link_alt(heptagon *h, heptagon *alt, hstate firststate, int dir) override;
   void on_dim_change() override;
+  int pattern_value(cell *c) override;
   };
 
 void clearfrom(heptagon*);
@@ -123,6 +141,16 @@ struct hrmap_hyperbolic : hrmap_standard {
   void virtualRebase(heptagon*& base, transmatrix& at) override;
   };
 #endif
+
+int hrmap_standard::pattern_value(cell *c) {
+  if(&currfp == &fieldpattern::fp_invalid) return 0;
+  if(NONSTDVAR) return gp::get_pattern_value(c);
+  if(ctof(c)) return c->master->fieldval/S7;
+  int z = 0;
+  for(int u=0; u<S6; u+=2)
+    z = max(z, fieldpattern::btspin(createMov(c, u)->master->fieldval, c->c.spin(u)));
+  return -1-z;
+  }
 
 void hrmap_standard::on_dim_change() {
   for(auto& p: gp::gp_swapped) swapmatrix(gp::gp_adj[p]);
@@ -224,6 +252,7 @@ EX int dirdiff(int dd, int t) {
 EX int cellcount = 0;
 
 EX void destroy_cell(cell *c) {
+  while(c->contents) c->contents->unlist_and_unref();
   tailored_delete(c);
   cellcount--;
   }
@@ -386,7 +415,7 @@ EX void init_disk_cells() {
     while(isize(tiles)) {
       auto ti = tiles.top();
       tiles.pop();
-      println(hlog, "dist=", ti.dist, " for c=", ti.c);
+      // println(hlog, "dist=", ti.dist, " for c=", ti.c, " T = ", kz(ti.T), " vs ", ok);
       if(seen.count(ti.c)) continue;
       seen.insert(ti.c);
       if(ti.dist > last_dist + 1e-6 && isize(all_disk_cells) >= disksize) break;
@@ -398,7 +427,7 @@ EX void init_disk_cells() {
         next.T = ti.T * p.T;
         if(diskshape == dshVertices) next.dist = ti.dist + 1;
         else next.dist = hdist0(tC0(next.T));
-        println(hlog, ti.c, " -> ", p.c, " at ", next.dist);
+        // println(hlog, ti.c, " -> ", p.c, " at ", next.dist, " got T= ", kz(p.T));
         tiles.push(next);
         }
       }
@@ -411,6 +440,12 @@ EX bool is_in_disk(cell *c) {
   auto it = lower_bound(all_disk_cells_sorted.begin(), all_disk_cells_sorted.end(), c);
   if(it == all_disk_cells_sorted.end()) return false;
   return *it == c;
+  }
+
+EX int disk_index(cell *c) {
+  auto it = lower_bound(all_disk_cells_sorted.begin(), all_disk_cells_sorted.end(), c);
+  if(it == all_disk_cells_sorted.end() || *it != c) return isize(all_disk_cells_sorted);
+  return it - all_disk_cells_sorted.begin();
   }
 
 bool sierpinski3(gp::loc g) {
@@ -548,9 +583,11 @@ EX cell *fractal_rep(cell *c) {
     }
   }
 
+EX debugflag debug_init_cells = {"init_cells", true};
+
 /** create a map in the current geometry */
 EX void initcells() {
-  DEBB(DF_INIT, ("initcells"));
+  indenter_finish dif(debug_init_cells, "initcells");
 
   if(embedded_plane) {
     geom3::swap_direction = -1;
@@ -560,7 +597,7 @@ EX void initcells() {
     check_cgi();
     geom3::swap_direction = +1;
     for(auto& m: cgi.heptmove) swapmatrix(m);
-    currentmap->on_dim_change();
+    currentmap->reinit();
     return;
     }
 
@@ -605,19 +642,25 @@ EX void initcells() {
   // origin->emeraldval = 
   }
 
+EX debugflag debug_memory_cell = {"memory_cell"};
+
 EX void clearcell(cell *c) {
   if(!c) return;
-  DEBB(DF_MEMORY, (hr::format("c%d %p\n", c->type, hr::voidp(c))));
+  indenter_finish(debug_memory_cell, hr::format("memory_cell %d %p\n", c->type, hr::voidp(c)));
   for(int t=0; t<c->type; t++) if(c->move(t)) {
-    DEBB(DF_MEMORY, (hr::format("mov %p [%p] S%d\n", hr::voidp(c->move(t)), hr::voidp(c->move(t)->move(c->c.spin(t))), c->c.spin(t))));
+    if(debug_memory_cell)
+      println(hlog, hr::format("mov %p [%p] S%d\n", hr::voidp(c->move(t)), hr::voidp(c->move(t)->move(c->c.spin(t))), c->c.spin(t)));
     if(c->move(t)->move(c->c.spin(t)) != NULL &&
       c->move(t)->move(c->c.spin(t)) != c) {
-        DEBB(DF_MEMORY | DF_ERROR, (hr::format("cell error: type = %d %d -> %d\n", c->type, t, c->c.spin(t))));
-        if(worst_precision_error < 1e-3) exit(1);
+        if(debug_errors || debug_memory_cell)
+          println(hlog, hr::format("cell error: type = %d %d -> %d\n", c->type, t, c->c.spin(t)));
+        if(worst_precision_error < 1e-3)
+          throw hr_exception("clearcell");
         }
     c->move(t)->move(c->c.spin(t)) = NULL;
     }
-  DEBB(DF_MEMORY, (hr::format("DEL %p\n", hr::voidp(c))));
+  if(debug_memory_cell)
+    println(hlog, hr::format("DEL %p\n", hr::voidp(c)));
   gp::delete_mapped(c);
   destroy_cell(c);
   }
@@ -670,11 +713,12 @@ EX void clearfrom(heptagon *at) {
     at = q.front(); 
 //  if(q.size() > maxq) maxq = q.size();
     q.pop();
-    DEBB(DF_MEMORY, ("from %p", at));
+    if(debug_memory_cell) println(hlog, "from %p", at);
     if(!at->c7 && !ls::voronoi_structure()) {
       heptagon *h = dynamic_cast<heptagon*> ((cdata_or_heptagon*) at->cdata);
       if(h) {
-        if(h->alt != at) { DEBB(DF_MEMORY | DF_ERROR, ("alt error :: h->alt = ", h->alt, " expected ", at)); }
+        if(h->alt != at && (debug_memory_cell || debug_errors))
+          println(hlog, "alt error :: h->alt = ", h->alt, " expected ", at);
         cell *c = h->c7;
         subcell(c, destroycellcontents);
         h->alt = NULL;
@@ -688,12 +732,10 @@ EX void clearfrom(heptagon *at) {
         q.push(at->move(i));    
       unlink_cdata(at->move(i));
       at->move(i)->alt = &deletion_marker;
-      DEBB(DF_MEMORY, ("!mov ", at->move(i), " [", at->move(i)->move(at->c.spin(i)), "]"));
+      if(debug_memory_cell) println(hlog, "!mov ", at->move(i), " [", at->move(i)->move(at->c.spin(i)), "]");
       if(at->move(i)->move(at->c.spin(i)) != NULL &&
-        at->move(i)->move(at->c.spin(i)) != at) {
-          DEBB(DF_MEMORY | DF_ERROR, ("hept error"));
-          exit(1);
-          }
+        at->move(i)->move(at->c.spin(i)) != at)
+          throw hr_exception("hept error");
       at->move(i)->move(at->c.spin(i)) = NULL;
       at->move(i) = NULL;
       }
@@ -711,7 +753,7 @@ EX void verifycell(cell *c) {
       if(BITRUNCATED && c == c->master->c7) verifycell(c2);
       if(c2->move(c->c.spin(i)) && c2->move(c->c.spin(i)) != c) {
         printf("cell error %p:%d [%d] %p:%d [%d]\n", hr::voidp(c), i, c->type, hr::voidp(c2), c->c.spin(i), c2->type);
-        exit(1);
+        throw hr_exception("error during verifycell");
         }
       }
     }
@@ -1234,12 +1276,12 @@ int ld_to_int(ld x) {
 
 #if CAP_ARCM
 EX gp::loc pseudocoords(cell *c) {
-  transmatrix T = arcm::archimedean_gmatrix[c->master].second;
+  transmatrix T = arcm::bm.where[c->master].second;
   return {ld_to_int(T[0][LDIM]), ld_to_int((spin(60._deg) * T)[0][LDIM])};
   }
 
 EX cdata *arcmCdata(cell *c) {
-  auto &agm = arcm::archimedean_gmatrix;
+  auto &agm = arcm::bm.where;
   if(!agm.count(c->master) || !agm[c->master].first) {
     forCellEx(c1, c) if(agm.count(c->master) && agm[c->master].first) return arcmCdata(c1);
     static cdata dummy;
@@ -1247,7 +1289,7 @@ EX cdata *arcmCdata(cell *c) {
     }
   heptagon *h2 = agm[c->master].first;
   dynamicval<eGeometry> g(geometry, gNormal); 
-  dynamicval<hrmap*> cm(currentmap, arcm::current_altmap);  
+  dynamicval<hrmap*> cm(currentmap, arcm::bm.current_altmap);
   return getHeptagonCdata(h2);
   }
 #endif
@@ -1469,14 +1511,15 @@ EX int celldistance(cell *c1, cell *c2) {
   if(hyperbolic && WDIM == 3) return reg3::celldistance(c1, c2);
   #endif
 
-  if(INVERSE) {
+  /* if(INVERSE) {
     c1 = gp::get_mapped(c1);
     c2 = gp::get_mapped(c2);
     return UIU(celldistance(c1, c2)) / 2;
-    /* TODO */
-    }
+    // that does not seem to work
+    } */
 
   if(euclid) return clueless_celldistance(c1, c2);
+  if(INVERSE) return clueless_celldistance(c1, c2);
 
   return hyperbolic_celldistance(c1, c2);
   }
@@ -1545,7 +1588,7 @@ EX void clearCellMemory() {
     if(allmaps[i])
       delete allmaps[i];
   allmaps.clear();
-  currentmap = nullptr;
+  currentmap = nullptr; hybrid::pmap = nullptr; fake::pmap = nullptr; gp::pmap = nullptr;
   last_cleared = NULL;
   saved_distances.clear();
   dists_computed.clear();
@@ -1600,7 +1643,7 @@ EX vector<adj_data> adj_minefield_cells_full(cell *c) {
     forCellIdCM(c2, i, c) res.emplace_back(adj_data{c2, c->c.mirror(i), currentmap->adj(c, i)});
     }
   else if(WDIM == 2) {
-    cellwalker cw(c, 0);
+    cellwalker cw(c, 0); cw.cpeek();
     transmatrix T = Id;
     T = T * currentmap->adj(c, 0);
     cw += wstep;
@@ -1608,6 +1651,7 @@ EX vector<adj_data> adj_minefield_cells_full(cell *c) {
     cellwalker cw1 = cw;
     do {
       res.emplace_back(adj_data{cw.at, cw.mirrored, T});
+      cw.cpeek();
       T = T * currentmap->adj(cw.at, cw.spin);
       cw += wstep;
       cw++;
@@ -1727,24 +1771,60 @@ EX bool is_boundary(cell *c) {
   }
 
 /** compute the distlimit for a tessellation automatically */
-EX int auto_compute_range(cell *c) {  
-  if(sphere) {
-    cgi.base_distlimit = SEE_ALL;
-    return SEE_ALL;
-    }
+EX int auto_compute_range(cell *c) {
+  if(sphere) return SEE_ALL;
   cgi.base_distlimit = 0;
   const int expected_count = 400;
   celllister cl(c, 1000, expected_count, NULL);
   int z = isize(cl.dists);
   int d = cl.dists.back();
   while(cl.dists[z-1] == d) z--;
-  if(true) { // if(cgflags & DF_GEOM) {
+  if(debug_geometry) {
     println(hlog, "last distance = ", cl.dists.back());
     println(hlog, "ball size = ", isize(cl.dists));
     println(hlog, "previous ball size = ", z);
     }
   if(isize(cl.dists) * z > expected_count * expected_count) d--;
+  if(d <= 0) d = 1;
   return ginf[geometry].distlimit[0] = cgi.base_distlimit = d;
+  }
+
+EX int getDistLimit() {
+  auto& res = cgi.base_distlimit;
+  if(res) return res;
+  if(arb::in() && arb::current.range)
+    return res = arb::current.range;
+  if(arcm::in() || arb::in()) {
+    if(!currentmap) return 0;
+    cell *c = currentmap->gamestart();
+    if(!c) return 0;
+    return res = auto_compute_range(c);
+    }
+  if(mhybrid)
+    return res = hybrid::in_underlying_geometry([&] {
+      return max(getDistLimit()-1, 0);
+      });
+  res = ginf[geometry].distlimit[!BITRUNCATED];
+  if(GOLDBERG_INV) {
+    if(!cgi.gpdata) return res = 0;
+    println(hlog, "original = ", res);
+    using gp::param;
+    auto& scale = cgi.gpdata->scale;
+    if(S3 == 3)
+      res = (res + log(scale) / log(2.618)) / scale;
+    else
+      res = 3 * max(param.first, param.second) + 2 * min(param.first, param.second);
+    if(S7 == 12)
+      res = 2 * param.first + 2 * param.second + 1;
+    if(res > SEE_ALL)
+      res = SEE_ALL;
+    }
+  if(IRREGULAR) {
+    auto scale = irr::compute_scale();
+    res = (res + log(scale) / log(2.618)) / scale;
+    if(res > 25) res = 25;
+    }
+  return res;
   }
 
 EX cell out_of_bounds;

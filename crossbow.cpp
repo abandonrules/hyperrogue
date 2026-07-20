@@ -28,6 +28,7 @@ EX namespace bow {
 #if HDR
 enum eWeapon { wBlade, wCrossbow };
 enum eCrossbowStyle { cbBull, cbGeodesic, cbGeometric };
+const string bowName[] = { "bull", "geod", "geom" };
 #endif
 
 EX eWeapon weapon;
@@ -81,12 +82,15 @@ EX int qadd(cellwalker a, cellwalker b) {
 
 int best_score_res;
 
+const int BOLT_INVALID = -999999;
+
 EX int bolt_score(cellwalker cw2) {
   int d = cw2.at->cpdist;
   int ntotal = 2;
   if(inmirror(cw2.at)) cw2 = mirror::reflect(cw2);
-  if(blocks(cw2.cpeek())) return -1;
-  if(thruVine(cw2.at, cw2.cpeek())) return -1;
+  if(blocks(cw2.cpeek())) return BOLT_INVALID;
+  if(thruVine(cw2.at, cw2.cpeek())) return BOLT_INVALID;
+  if(nonAdjacent(cw2.at, cw2.cpeek())) return BOLT_INVALID;
 
   if(cw2.at->monst) {
     flagtype attackflags = AF_BOW;
@@ -94,7 +98,9 @@ EX int bolt_score(cellwalker cw2) {
     if(items[itOrbSlaying]) attackflags |= AF_CRUSH;
     if(items[itCurseWeakness]) attackflags |= AF_WEAK;
     if(canAttack(cw2.cpeek(), moPlayer, cw2.at, cw2.at->monst, attackflags)) {
-      ntotal += 10000; ntotal += 1280 >> d;
+      int sco = 10;
+      if(isFriendly(cw2.at)) sco = -50;
+      ntotal += 1000 * sco; ntotal += (128 * sco) >> d;
       }
     }
 
@@ -102,7 +108,9 @@ EX int bolt_score(cellwalker cw2) {
     cell *c1 = cw2.at->cmove(t);
     if(!logical_adjacent(cw2.cpeek(), moPlayer, c1)) continue;
     if(canAttack(cw2.cpeek(),moPlayer,c1,c1->monst,AF_STAB)) {
-      ntotal += 10000; ntotal += 1280 >> d;
+      int sco = 10;
+      if(isFriendly(c1)) sco = -50;
+      ntotal += 1000 * sco; ntotal += (128 * sco) >> d;
       }
     }
 
@@ -113,19 +121,20 @@ EX vector<int> create_dirseq() {
   map<cell*, bowscore> scores;
   scores[cwt.at].total = 0;
 
-  int best_score = -1; cell* best_score_at = cwt.at;
+  int best_score = BOLT_INVALID; cell* best_score_at = cwt.at;
 
   for(cell *c: dcal) {
     cell *c1 = target_at[c->cpdist];
     if(c1 && c != c1) continue;
-    if(c == c1) { best_score = -1; }
+    if(c == c1) { best_score = BOLT_INVALID; }
     bowscore best;
-    best.total = -1;
+    best.total = BOLT_INVALID;
     forCellIdEx(c1, i, c) if(c1->cpdist < c->cpdist && scores.count(c1)) {
       auto& last = scores[c1];
       auto ocw2 = cellwalker(c, i);
       int bonus = bolt_score(ocw2);
-      if(bonus < 0) continue;
+      println(hlog, "at ", ocw2, " bonus is ", bonus);
+      if(bonus == BOLT_INVALID) continue;
       int ntotal = last.total + bonus;
 
       int dir = 0;
@@ -148,10 +157,10 @@ EX vector<int> create_dirseq() {
       best.total = max(best.total, ntotal);
       }
     if(best.total > best_score) { best_score = best.total; best_score_at = c; }
-    if(best.total > -1) scores[c] = best;
+    if(best.total > BOLT_INVALID) scores[c] = best;
     }
 
-  if(best_score == -1) return {};
+  if(best_score == BOLT_INVALID) return {};
 
   vector<int> dirseq = { NODIR };
   while(best_score_at != cwt.at) { 
@@ -189,12 +198,15 @@ EX vector<int> create_dirseq_geometric() {
       if(GDIM == 3) y = hypot(U0[1], U0[2]); else y = abs(U0[1]) + (U0[1] > 0 ? 1e-6 : 0);
       if(y < best_y) { best_y = y; best_i = i; }
       }
-    if(best_i < 0) break;
+    if(best_i < 0) {
+      dirseq.push_back(NODIR);
+      break;
+      }
     at = at + best_i;
     int bonus = bolt_score(at + wstep);
-    if(bonus < 0) break;
-    best_score_res += bonus;
+    if(bonus != BOLT_INVALID) best_score_res += bonus;
     dirseq.push_back(best_i);
+    if(bonus == BOLT_INVALID) break;
     T = T * currentmap->adj(at.at, at.spin);
     at = at + wstep;
     }
@@ -297,7 +309,7 @@ EX void add_fire(cell *c) {
       return;
       }
     clear_bowpath();
-    checked_move_issue = miVALID;
+    checked_move_issue.type = miVALID;
     pcmove pcm;
     pcm.checkonly = false;
     changes.init(false);
@@ -324,6 +336,50 @@ EX void add_fire(cell *c) {
     }
   }
 
+#if HDR
+enum eMouseFireMode { mfmNone, mfmPriority, mfmAlways };
+#endif
+
+EX eMouseFireMode mouse_fire_mode = mfmPriority;
+
+EX bool fire_on_mouse(cell *c) {
+  if(!crossbow_mode()) return false;
+  if(mouse_fire_mode == mfmNone) return false;
+  if(!mouseover) return false;
+  if(!mouseover->monst) return false;
+  if(isFriendly(mouseover)) return false;
+  if(shmup::on) return false;
+  if(items[itCrossbow]) {
+    if(mouse_fire_mode == mfmAlways) {
+      addMessage(XLAT("Cannot fire again yet. Turns to reload: %1.", its(items[itCrossbow])));
+      return true;
+      }
+    return false;
+    }
+  target_at = {};
+  target_at[mouseover->cpdist] = mouseover;
+  int res = create_path();
+  if(res <= 0) {
+    if(mouse_fire_mode == mfmAlways) {
+      addMessage(XLAT("Shooting impossible."));
+      return true;
+      }
+    return false;
+    }
+  gen_bowpath_map();
+  checked_move_issue.type = miVALID;
+  pcmove pcm;
+  pcm.checkonly = false;
+  changes.init(false);
+  addMessage(XLAT("Fire!"));
+  bool b = pcm.try_shooting(false);
+  if(!b) changes.rollback();
+  if(mouse_fire_mode == mfmAlways) return true;
+  return b;
+  }
+
+EX int rusalka_curses = 0;
+
 EX void shoot() {
   flagtype attackflags = AF_BOW;
   if(items[itOrbSpeed]&1) attackflags |= AF_FAST;
@@ -331,6 +387,34 @@ EX void shoot() {
   if(items[itCurseWeakness]) attackflags |= AF_WEAK;
 
   vector<bowpoint> pushes;
+
+  // for achievements
+  set<eMonster> kills;
+  vector<pair<cell*, int>> healthy_dragons;
+  map<cell*, pair<int, int>> kraken_hits;
+  int dragon_hits = 0;
+  rusalka_curses = 0;
+
+  // for achievements
+  for(auto& mov: bowpath) {
+    cell *c = mov.prev.at;
+    if(c->monst == moDragonHead) {
+      bool healthy = true;
+      cell *c1 = c;
+      int qty = 0;
+      for(int i=0; i<iteration_limit; i++) {
+        if(!isDragon(c1)) break;
+        if(!c1->hitpoints) { healthy = false; break; }
+        if(c1->mondir == NODIR) break;
+        c1 = c1->move(c1->mondir);
+        qty++;
+        }
+      if(healthy) healthy_dragons.emplace_back(c, qty);
+      }
+    if(c->monst == moKrakenT && c->hitpoints) {
+      kraken_hits[kraken::head(c)].first++;
+      }
+    }
 
   for(auto& mov: bowpath) {
     cell *c = mov.prev.at;
@@ -346,9 +430,11 @@ EX void shoot() {
       if(logical_adjacent(c, moPlayer, c1)) stabthere = true;
 
       if(stabthere && canAttack(cf,who,c1,c1->monst,AF_STAB)) {
+        hit_anything = true;
         changes.ccell(c1);
         eMonster m = c->monst;
         if(attackMonster(c1, AF_STAB | AF_MSG, who))  {
+          achievement_count("STAB", 1, 0);
           spread_plague(c1, cf, t, moPlayer);
           produceGhost(c, m, moPlayer);
           }
@@ -358,21 +444,39 @@ EX void shoot() {
     mirror::breakMirror(mov.next, -1);
     eMonster m = c->monst;
     if(!m || isMimic(m)) continue;
+    if(m == moKrakenH) continue;
+
     if(!canAttack(cf, who, c, m, attackflags)) {
-      pcmove pcm; pcm.mi = movei(mov.prev).rev();
-      pcm.tell_why_cannot_attack();
-      continue;
+      if(among(m, moSleepBull, moHerdBull)) {
+        changes.ccell(c);
+        addMessage(XLAT("%The1 is enraged!", m));
+        c->monst = moRagingBull;
+        hit_anything = true;
+        continue;
+        }
+      else {
+        pcmove pcm; pcm.mi = movei(mov.prev).rev();
+        pcm.tell_why_cannot_attack();
+        continue;
+        }
       }
     changes.ccell(c);
 
     bool push = (items[itCurseWeakness] || (isStunnable(c->monst) && c->hitpoints > 1));
     push = push && (!(mov.flags & bpLAST) && monsterPushable(c));
 
-    if(m) attackMonster(c, attackflags | AF_MSG, who);
+    // for achievements
+    if(isDragon(m)) dragon_hits++;
+    if(m == moKrakenT && c->hitpoints) kraken_hits[kraken::head(c)].second++;
+
+    if(m && attackMonster(c, attackflags | AF_MSG, who)) hit_anything = true;
+
+    if(m == moRusalka) rusalka_curses++;
 
     if(!c->monst || isAnyIvy(m)) {
       spread_plague(cf, c, movei(mov.prev).rev().d, moPlayer);
       produceGhost(c, m, moPlayer);
+      kills.insert(m);
       }
 
     if(push) pushes.push_back(mov);
@@ -384,6 +488,7 @@ EX void shoot() {
     cell *ct = mov.next.cpeek();
     bool can_push = passable(ct, c, P_BLOW);
     if(can_push) {
+      hit_anything = true;
       changes.ccell(c);
       changes.ccell(ct);
       pushMonster(mov.next);
@@ -393,10 +498,29 @@ EX void shoot() {
 
   reverse(bowpath.begin(), bowpath.end());
 
+  // three achievements:
+  achievement_count("BOWVARIETY", kills.size(), 0);
+
+  for(auto p: healthy_dragons) {
+    cell *c = p.first;
+    if(c->monst != moDragonHead && dragon_hits >= p.second)
+      achievement_gain_once("BOWDRAGON");
+    }
+
+  for(auto kh: kraken_hits) {
+    if(kh.second.first == 3 && kh.second.second == 3) {
+      if(kraken::half_killed[kh.first]) achievement_gain_once("BOWKRAKEN");
+      else kraken::half_killed[kh.first] = true;
+      }
+    }
+
   gen_bowpath_map();
   }
 
-EX bool have_bow_target() {
+EX cell *have_bow_target() {
+  if(!bow::crossbow_mode()) return nullptr;
+  if(items[itCrossbow]) return nullptr;
+
   dynamicval<decltype(bowpath)> bp(bowpath);
   dynamicval<decltype(bowpath_map)> bpm(bowpath_map);
 
@@ -408,16 +532,16 @@ EX bool have_bow_target() {
     int res = create_path();
     if(res == -1) continue;
 
-    checked_move_issue = miVALID;
+    checked_move_issue.type = miVALID;
     pcmove pcm;
     pcm.checkonly = true;
     changes.init(true);
     bool b = pcm.try_shooting(false);
     changes.rollback();
 
-    if(b) return true;
+    if(b) return c;
     }
-  return false;
+  return nullptr;
   }
 
 EX void showMenu() {
@@ -428,6 +552,7 @@ EX void showMenu() {
   if(crossbow_mode()) {
     add_edit(style);
     add_edit(bump_to_shoot);
+    add_edit(bow::mouse_fire_mode);
     }
   else dialog::addBreak(200);
   dialog::addBack();

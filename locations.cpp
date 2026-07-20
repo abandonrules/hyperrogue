@@ -22,6 +22,43 @@ extern int cellcount, heptacount;
 #define NOBARRIERS 127
 #define NOBARRIERS2 125
 
+using cell_content_list = struct cell_content*;
+
+namespace shmup { struct monster; }
+
+struct cell_content {
+  cell_content *next;
+  cell_content_list *last;
+  virtual shmup::monster *as_monster() { return nullptr; }
+
+  void remove_from_list() {
+    if(last) { last[0] = next; if(next) next->last = last; next = nullptr; last = nullptr; }
+    }
+
+  void add_to_list(cell_content_list& l) {
+    remove_from_list();
+    next = l; if(l) l->last = &next;
+    last = &l; l = this;
+    }
+
+  int refs;
+  cell_content() { refs = 1; next = nullptr; last = nullptr; }
+
+  virtual ~cell_content() {
+    remove_from_list();
+    }
+
+  void unref() {
+    refs--;
+    if(!refs) delete this;
+    }
+
+  void unlist_and_unref() { remove_from_list(); unref(); }
+  virtual void draw(struct celldrawer& cd) {}
+  };
+
+#define FOR_LIST(it, ml) for(cell_content *it = (ml); it; it = it->next)
+
 /** \brief Cell information for the game. struct cell builds on this */
 struct gcell {
 
@@ -98,11 +135,14 @@ struct gcell {
   #ifdef CELLID
   int cellid;
   #endif
+
+  cell_content_list contents;
   
   gcell() {
     #ifdef CELLID
-    cellid = cellcount;  
+    cellid = cellcount;
     #endif
+    contents = nullptr;
     }
   };
 
@@ -213,7 +253,7 @@ template<class T> struct walker {
   int spin;
   /** \brief are we mirrored */
   bool mirrored;
-  walker<T> (T *at = NULL, int s = 0, bool m = false) : at(at), spin(s), mirrored(m) { if(at) s = at->c.fix(s); }
+  walker(T *at = NULL, int s = 0, bool m = false) : at(at), spin(s), mirrored(m) { if(at) s = at->c.fix(s); }
   /** \brief spin by i to the left (or right, when mirrored */
   walker<T>& operator += (int i) {
     spin = at->c.fix(spin+(mirrored?-i:i));
@@ -413,15 +453,28 @@ struct manual_celllister {
     return true;
     }
 
+  /** \brief remove a cell from the list */
+  bool remove(cell *c) {
+    if(!listed(c)) return false;
+    int i = c->listindex;
+    c->listindex = tmps[i];
+    tmps.erase(tmps.begin() + i);
+    lst.erase(lst.begin() + i);
+    return true;
+    }
+
   ~manual_celllister() {     
     for(int i=0; i<isize(lst); i++) lst[i]->listindex = tmps[i];
     }  
   };
-  
+
 /** \brief automatically generate a list of nearby cells */
 struct celllister : manual_celllister {
   vector<int> dists;
-  
+
+  enum stop_reason { srAll, srCount, srCell, srDistance };
+  stop_reason reason;
+
   void add_at(cell *c, int d) {
     if(add(c)) dists.push_back(d);
     }
@@ -439,13 +492,15 @@ struct celllister : manual_celllister {
       cell *c = lst[i];
       if(maxdist) forCellCM(c2, c) {
         add_at(c2, dists[i]+1);
-        if(c2 == breakon) return;
+        if(c2 == breakon) { reason = srCell; return; }
         }
       if(c == last) {
-        if(isize(lst) >= maxcount || dists[i]+1 == maxdist) break;
+        if(isize(lst) >= maxcount) { reason = srCount; return; }
+        if(dists[i]+1 == maxdist) { reason = srDistance; return; }
         last = lst[isize(lst)-1];
         }
       }
+    reason = srAll;
     }
   
   /** \brief for a given cell c on the list, return its distance from orig */
@@ -460,6 +515,23 @@ inline cellwalker operator+ (heptspin hs, cth_t) { return cellwalker(hs.at->c7, 
 #endif
 
 EX bool proper(cell *c, int d) { return d >= 0 && d < c->type; }
+
+/** return b-a, as in, a number x such that a+x == b. */
+EX int cwdiff(cellwalker b, cellwalker a) {
+  return a.mirrored ? a.spin - b.spin : b.spin - a.spin;
+  }
+
+/** like cwdiff but normalize to [0..type-1) */
+EX int cwdiff_fixed(cellwalker b, cellwalker a) {
+  return gmod(cwdiff(b, a), b.at->type);
+  }
+
+/** return c+(b-a) */
+EX cellwalker cw_add_diff(cellwalker c, cellwalker b, cellwalker a) {
+  c += cwdiff(b, a);
+  if(a.mirrored != b.mirrored) c += wmirror;
+  return c;
+  }
 
 #if HDR
 
@@ -499,6 +571,16 @@ struct movei {
   int rev_dir_force() const { hassert(proper()); return s->c.spin(d); }
   int dir_force() const { hassert(proper()); return d; }
   bool mirror() { return s->c.mirror(d); }
+  };
+#endif
+
+#if HDR
+struct jumpdata {
+  eMonster dashmon;
+  cell *jumpthru;
+  bool uniq;
+  vector<movei> moves;
+  jumpdata() { dashmon = moNone; jumpthru = nullptr; uniq = false; }
   };
 #endif
 

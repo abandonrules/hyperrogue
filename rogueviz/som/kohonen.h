@@ -63,6 +63,8 @@ extern vector<string> colnames;
 
 extern vector<int> sample_sequence;
 
+extern vector<neuron*> whowon;
+
 void initialize_neurons();
 void initialize_neurons_initial();
 void initialize_dispersion();
@@ -105,6 +107,7 @@ extern void get_coordinates(kohvec& v, cell *c, cell *c0);
 extern vector<cell*> signposts;
 
 extern map<cellwalker, kohvec> delta_at;
+extern kohvec& get_landscape_at(cell *h);
 
 }
 
@@ -149,7 +152,7 @@ ld evaluate_measure(manidata& emb, manidata& orig, vector<int>& mapp, vector<pai
 
 }
 
-static constexpr string som_test_dir = "results/";
+static const string som_test_dir = "results/";
 }
 
 

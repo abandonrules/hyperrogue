@@ -14,16 +14,26 @@ EX int currentLocalTreasure;
 /** for treasures, the number collected; for orbs, the number of charges */
 EX array<int, ittypes> items;
 
+EX array<int, ittypes> cheat_items;
+EX bool cheat_items_enabled;
+
 EX map<modecode_t, array<int, ittypes> > hiitems;
 
+EX bool pickable_from_water(eItem it) {
+  return among(it, itOrbFish, itOrbAether);
+  }
+
 EX bool cannotPickupItem(cell *c, bool telekinesis) {
-  return itemHidden(c) && !telekinesis && !(isWatery(c) && markOrb(itOrbFish));
+  if(pickable_from_water(c->item) && isWatery(c)) return false;
+  return itemHidden(c) && !telekinesis && !(isWatery(c) && (markOrb(itOrbFish) || markOrb(itOrbAether)));
   }
 
 EX bool canPickupItemWithMagnetism(cell *c, cell *from) {
   if(!c->item || c->item == itOrbYendor || isWall(c) || cannotPickupItem(c, false))
     return false;
   if(c->item == itCompass && from->item) 
+    return false;
+  if(saved_tortoise_on(c))
     return false;
   return true;
   }
@@ -36,12 +46,12 @@ EX bool doPickupItemsWithMagnetism(cell *c) {
       cw += wstep;
       for(int j=1; j<c3->type; j++) {
         cell *c4 = (cw+j).peek();
-        if(!isNeighbor(c, c4) && c3->item && !c4->item && passable(c4, c3, ZERO)) {
+        if(!isNeighbor(c, c4) && c3->item && !c4->item && !saved_tortoise_on(c3) && passable(c4, c3, ZERO)) {
           changes.ccell(c3);
           changes.ccell(c4);
-          c4->item = c3->item;
-          moveEffect(movei(c3, c4, (cw+j).spin), moDeadBird);
-          c3->item = itNone;
+          moveItem(c3, c4, false);
+          animateMovement(match(c3, c4), LAYER_BOAT);
+          moveEffect(movei(c4, c4, NODIR), moDeadBird);
           markOrb(itCurseRepulsion);
           }
         }
@@ -57,8 +67,12 @@ EX bool doPickupItemsWithMagnetism(cell *c) {
         }
       else if(c3->item == itOrbSafety || c3->item == itBuggy || c3->item == itBuggy2)
         csaf = c3;
-      else if(markOrb(itOrbMagnetism))
+      else if(markOrb(itOrbMagnetism)) {
+        eItem it = c3->item;
         collectItem(c3, c3, false);
+        if(!c3->item)
+          animate_item_throw(c3, c, it);
+        }
       }
   if(csaf)
     return collectItem(csaf, csaf, false);
@@ -92,7 +106,9 @@ EX bool collectItem(cell *c2, cell *last, bool telekinesis IS(false)) {
 
   bool dopickup = true;
   bool had_choice = false;
-  
+
+  if(shmup::on && !canmove) return false;
+
   if(cannotPickupItem(c2, telekinesis))
     return false;
 
@@ -251,8 +267,10 @@ EX bool collectItem(cell *c2, cell *last, bool telekinesis IS(false)) {
     items[itOrbSpeed] += v;
     items[itHolyGrail]++;
     addMessage(XLAT("Congratulations! You have found the Holy Grail!"));
-    if(!eubinary) changes.value_keep(c2->master->alt->emeraldval);
-    if(!eubinary) c2->master->alt->emeraldval |= GRAIL_FOUND;
+    if(!eubinary && c2->master->alt) {
+      changes.value_keep(c2->master->alt->emeraldval);
+      c2->master->alt->emeraldval |= GRAIL_FOUND;
+      }
     achievement_collection(c2->item);
     }
   else if(c2->item == itKey) {
@@ -296,7 +314,7 @@ EX bool collectItem(cell *c2, cell *last, bool telekinesis IS(false)) {
     int q_el = items[itElemental];
 
     if(c2->item == itBarrow) 
-      for(int i=0; i<c2->landparam; i++) gainItem(c2->item);
+      for(int i=0; i<barrowCount(c2); i++) gainItem(c2->item);
     else if(c2->item) gainItem(c2->item);
 
     if(c2->item && items[c2->item] > q && (vid.bubbles_all || (threshold_met(items[c2->item]) > threshold_met(q) && vid.bubbles_threshold))) {
@@ -504,12 +522,14 @@ EX void updateHi_for_code(eItem it, int v, modecode_t xcode) {
   }
 
 EX void updateHi(eItem it, int v) {
+  LATE ( updateHi(it, v) );
   updateHi_for_code(it, v, modecode());
   }
 
 EX void gainItem(eItem it) {
   int g = gold();
   bool lhu = landUnlocked(laHell);
+  bool rc = rlyehComplete();
   items[it]++; if(it != itLotus) updateHi(it, items[it]);
   if(it == itRevolver && items[it] > 6) items[it] = 6;
   achievement_collection(it);
@@ -565,6 +585,8 @@ EX void gainItem(eItem it) {
       addMessage(XLAT("Abandon all hope, the gates of Hell are opened!"));
       addMessage(XLAT("And the Orbs of Yendor await!"));
       }
+    if(rlyehComplete() && !rc)
+      addMessage(XLAT("Cthulhu's tentacles reach out upon the world..."));
     }
   }
 
@@ -720,7 +742,7 @@ EX void collectMessage(cell *c2, eItem which) {
     addMessage(XLAT("A castle in the Crossroads..."));
   else if(which == itShard) ;
   else {
-    int qty = (which == itBarrow) ? c2->landparam : 1;
+    int qty = (which == itBarrow) ? barrowCount(c2) : 1;
     string t;
     if(which == itBarrow && items[which] < 25 && items[which] + qty >= 25)
       t = XLAT("Your energy swords get stronger!");
@@ -733,7 +755,15 @@ EX void collectMessage(cell *c2, eItem which) {
 
 EX bool itemHiddenFromSight(cell *c) {
   return isWatery(c) && !items[itOrbInvis] && !(items[itOrbFish] && playerInWater())
-    && !(shmup::on && shmup::boatAt(c));
+    && !(shmup::on && shmup::boatAt(c)) && !(c->cpdist <= 1 && playerInWater());
+  }
+
+EX int barrowCount(cell *c) {
+  // This should always be 2 or 3.
+  // Clamping to exactly that would make bugs go unnoticed.
+  // Not clamping at all would lead to freezes when it's absurdly large.
+  // Clamping to [1,4] means any incorrect values will be apparent but not game-breaking.
+  return min(max(c->landparam, 1), 4);
   }
 
 }

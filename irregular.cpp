@@ -63,7 +63,7 @@ EX hrmap *base;
 
 EX euc::torus_config_full base_config;
 
-bool gridmaking;
+EX bool gridmaking;
 
 int rearrange_index;
 
@@ -402,10 +402,7 @@ bool step(int delta) {
       if(notfound) { status[4] = XLAT("cells badly paired: %1", its(notfound)); runlevel = 0; break; }
       
       int heptas = 0;
-      for(auto p: cells_of_heptagon) {
-        printf("%p: %d\n", hr::voidp(p.first), isize(p.second));
-        heptas++;
-        }
+      for(auto p: cells_of_heptagon) heptas++;
       
       if(heptas != isize(all)) {
         status[4] = XLAT("cells not covered: %1", its(isize(all) - heptas));
@@ -479,16 +476,17 @@ bool step(int delta) {
   return false;
   }
 
+EX ld compute_scale() {
+  return sqrt(isize(cells_of_heptagon) * 1. / isize(cells));
+  }
+
 EX void compute_geometry() {
   if(IRREGULAR) {
-    ld scale = sqrt(isize(cells_of_heptagon) * 1. / isize(cells));
+    ld scale = compute_scale();
     cgi.crossf *= scale;
-    cgi.hepvdist *= scale;
     cgi.rhexf *= scale;
     cgi.hexhexdist *= scale;
     cgi.hexvdist *= scale;
-    cgi.base_distlimit = (cgi.base_distlimit + log(scale) / log(2.618)) / scale;
-    if(cgi.base_distlimit > 25) cgi.base_distlimit = 25;
     }
   }
 
@@ -770,10 +768,9 @@ EX int celldist(cell *c, bool alts) {
   return hi.celldists[alts][cells[cellindex[c]].localindex];
   }
 
-eGeometry orig_geometry;
+eGeometry orig_geometry, base_geometry;
 
 void start_game_on_created_map() {    
-  popScreen();
   for(hrmap *& hm : allmaps) if(hm == base) hm = NULL;
   stop_game();
   geometry = orig_geometry;
@@ -805,6 +802,47 @@ bool save_map(const string& fname) {
       }
     }
   return true;
+  }
+
+vector<ld> float_order;
+
+EX void save_map_bin(hstream& f) {
+  if(!base) { f.write<short>(-1); return; }
+  auto& all = base->allcells();
+  int origcells = 0;
+  for(cellinfo& ci: cells)
+    if(ci.generation == 0)
+      origcells++;
+  f.write<short> (base_geometry);
+  f.write<short> (isize(all));
+  f.write<short> (origcells);
+  int foi = 0;
+
+  auto check_float_order = [&] (ld x) {
+    if(foi >= isize(float_order)) {
+      float_order.push_back(x);
+      f.write<ld>(x);
+      }
+    else if(abs(float_order[foi] - x) > 1e-6) {
+      println(hlog, float_order[foi], " vs ", x, " : abs difference is ", abs(float_order[foi] - x));
+      float_order[foi] = x;
+      }
+    f.write<ld>(float_order[foi++]);
+    };
+
+  for(auto h: all) {
+    origcells = 0;
+    for(auto i: cells_of_heptagon[h->master])
+      if(cells[i].generation == 0)
+        origcells++;
+    f.write<short> (origcells);
+    for(auto i: cells_of_heptagon[h->master]) if(cells[i].generation == 0) {
+      auto &ci = cells[i];
+      check_float_order(ci.p[0]);
+      check_float_order(ci.p[1]);
+      check_float_order(ci.p[LDIM]);
+      }
+    }
   }
 
 bool load_map(const string &fname) {
@@ -839,14 +877,64 @@ bool load_map(const string &fname) {
   return true;
   }
 
-void cancel_map_creation() {
+EX void load_map_bin(hstream& f) {
+  auto& all = base->allcells();
+  eGeometry g = (eGeometry) f.get<short>();
+  if(int(g) == -1) return;
+  int sa = f.get<short>();
+  cellcount = f.get<short>();
+
+  if(g != geometry) throw hstream_exception("bad geometry");
+  if(sa != isize(all)) throw hstream_exception("bad size of all");
+  density = cellcount * 1. / isize(all);
+
+  cells.clear();
+  float_order.clear();
+
+  for(auto h: all) {
+    int q = f.get<short>();
+    if(q < 0 || q > cellcount) throw hstream_exception("incorrect quantity");
+    while(q--) {
+      cells.emplace_back();
+      cellinfo& s = cells.back();
+      s.patterndir = -1;
+      double a, b, c;
+      a = f.get<ld>();
+      b = f.get<ld>();
+      c = f.get<ld>();
+      float_order.push_back(a);
+      float_order.push_back(b);
+      float_order.push_back(c);
+      s.p = hpxyz(a, b, c);
+      s.p = normalize(s.p);
+      for(auto c0: all) s.relmatrices[c0] = calc_relative_matrix(c0, h, s.p);
+      s.owner = h;
+      }
+    }
+
+  make_cells_of_heptagon();
+  runlevel = 2;
+  }
+
+EX void load_map_full(hstream& f) {
+  init();
+  try {
+    load_map_bin(f);
+    while(runlevel < 10) step(1000);
+    start_game_on_created_map();
+    }
+  catch(hr_exception& e) {
+    cancel_map_creation();
+    throw e;
+    }
+  }
+
+EX void cancel_map_creation() {
   base = NULL;
   runlevel = 0;
-  popScreen();
   gridmaking = false;
   stop_game();
   geometry = orig_geometry;
-  start_game();
   }
 
 string irrmapfile = "irregularmap.txt";
@@ -898,9 +986,9 @@ void show_gridmaker() {
     dialog::addInfo(status[i]);
   dialog::addBreak(100);
   dialog::addSelItem(XLAT("activate"), runlevel == 10 ? XLAT("ready") : XLAT("wait..."), 'f');
-  if(runlevel == 10) dialog::add_action(start_game_on_created_map);
+  if(runlevel == 10) dialog::add_action([] { popScreen(); start_game_on_created_map(); });
   dialog::addItem(XLAT("cancel"), 'c');
-  dialog::add_action(cancel_map_creation);
+  dialog::add_action([] { cancel_map_creation(); popScreen(); start_game(); });
   dialog::addItem(XLAT("save"), 's');
   dialog::add_action([] () {
     dialog::openFileDialog(irrmapfile, XLAT("irregular to save:"), ".txt", [] () {
@@ -950,7 +1038,7 @@ void show_gridmaker() {
     };
   }
 
-EX void visual_creator() {
+EX void init() {
   stop_game();
   orig_geometry = geometry;
   switch(geometry) {
@@ -966,13 +1054,19 @@ EX void visual_creator() {
       break;
     }
 
+  base_geometry = geometry;
   variation = eVariation::pure;
   start_game();
   if(base) delete base;
   base = currentmap; 
   base_config = euc::eu;
-  drawthemap();
   cellcount = int(isize(base->allcells()) * density + .5);
+  gridmaking = true;
+  drawthemap();
+  }
+
+EX void visual_creator() {
+  init();
   pushScreen(show_gridmaker);
   runlevel = 0;
   gridmaking = true;
@@ -1015,7 +1109,7 @@ int readArgs() {
   else if(argis("-irrload")) {
     PHASE(3);
     restart_game();
-    visual_creator();
+    init();
     showstartmenu = false;
     shift();
     load_map(args());

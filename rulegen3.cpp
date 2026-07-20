@@ -1288,9 +1288,6 @@ EX void test_transducers() {
           swap(cum, result);
           ctid = t_origin[ctid].at->cmove(c)->id;
           }
-        int err = 0;
-        for(auto duc: cum) for(auto p: duc.second.t)
-          if(p.first.first == ENDED || p.first.second != p.first.first) err++;
         throw_identity_errors(cum, cyc.dirs);
         if(id_size != isize(cum)) println(hlog, "error: identity not recovered correctly");
         }
@@ -1430,7 +1427,7 @@ EX void optimize() {
 
   int N = isize(treestates);
 
-  println(hlog, "optimize: changes = ", changes, " errors = ", errors, " unreachable = ", N - isize(seen));
+  if(rdebug_flags & 64) println(hlog, "optimize: changes = ", changes, " errors = ", errors, " unreachable = ", N - isize(seen));
 
   if(errors) throw rulegen_retry("error found in optimize");
 
@@ -1471,7 +1468,7 @@ EX void optimize() {
       }
     }
 
-  if(steps) { println(hlog, "steps = ", steps); throw rulegen_retry("unreachable found in optimize"); }
+  if(steps) { if(rdebug_flags & 64) println(hlog, "steps = ", steps); throw rulegen_retry("unreachable found in optimize"); }
 
   important.clear();
   for(auto s: seen) important.push_back(treestates[s].giver);

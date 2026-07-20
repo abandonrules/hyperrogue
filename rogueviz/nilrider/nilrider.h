@@ -6,26 +6,60 @@ using namespace rogueviz;
 
 struct level;
 
+/** ticks per second */
+inline const ld tps = 1000;
+
+struct colorscheme {
+  color_t wheel1, wheel2, seat, seatpost;
+  colorscheme(int i) {
+    if(i == 1) { wheel1 = 0xFFFF40FF; wheel2 = 0xFF4040FF; seat = 0x303030FF; seatpost = 0x303030FF; }
+    if(i == 2) {
+      wheel1 = 0xFF | ((rand() % 0x1000000) << 8);
+      wheel2 = 0xFF | ((rand() % 0x1000000) << 8);
+      seat = 0xFF | ((rand() % 0x1000000) << 8);
+      seatpost = 0xFF | ((rand() % 0x1000000) << 8);
+      }
+    }
+  };
+
+colorscheme my_scheme(1);
+
 struct timestamp {
   hyperpoint where; /**< the current position of the unicycle */
   ld heading_angle; /**< the current heading angle */
   ld vel;           /**< the current velocity in units per second */
   ld circpos;       /**< controls the wheel graphics */
-  ld slope;         /**< the current slope */
+  ld slope;         /**< the current slope, as angle */
+  ld chg_slope;     /**< slope used at surface state change */
+  ld gfx_slope;     /**< current slope used by graphics */
   ld t;             /**< planning spline parameter */
   ld timer = 0;     /**< the timer, in seconds */
+  level *on_surface;/**< pointer to the sub-level if we are currently on the surface, nullptr otherwise */
+
+  ld sstime;        /**< when did we leave or enter surface? for smoothing gfx_slope */
+  hyperpoint flyvel;/**< velocity vector if we are not on any surface */
+  ld circvel;       /**< how fast the wheel is rotating if we are not on any surface, per second */
+
+  ld last_draw;     /**< when was gfx_slope computed */
+  ld last_tramp;    /**< time of last trampoline */
+  ld tramp_head;    /**< heading_angle at the moment of last trampoline */
+
 
   flagtype collected_triangles; /**< a bitset which shows which triangles are collected */
   flagtype goals;               /**< a bitset which shows which goals are complete */
   flagtype failed;              /**< a bitset which shows which goals are failed */
 
-  bool tick(level*);/**< one tick of the simulation -- returns false if the unicycle has stopped or crashed */
+  bool tick(level*, ld timeleft = 1. / tps);/**< one tick of the simulation -- returns false if the unicycle has stopped or crashed */
   void centerview(level*);
-  void draw_unilcycle(const shiftmatrix&);
+  void draw_unilcycle(const shiftmatrix&, const colorscheme& cs);
   void draw_instruments(level*);
   ld energy_in_squares();
   bool collect(level*);
+  bool out_of_surface(level*);
   void be_consistent();
+
+  bool check_crashes_rec(level*, level*, hyperpoint owhere, hyperpoint oflyvel, ld timeleft);
+  bool check_crashes(level*, level*, hyperpoint owhere, hyperpoint oflyvel, ld timeleft);
   };
 
 struct planpoint {
@@ -38,6 +72,9 @@ using plan_t = vector<planpoint>;
 
 constexpr flagtype nrlPolar = Flag(1);
 constexpr flagtype nrlOrder = Flag(2);
+constexpr flagtype nrlSwapTriangleOrder = Flag(3);
+constexpr flagtype nrlUserCreated = Flag(4);
+constexpr flagtype nrlJumping = Flag(5);
 
 struct statue {
   transmatrix T;
@@ -48,16 +85,19 @@ struct statue {
 struct triangledata {
   int x, y;
   hyperpoint where;
+  level *which;
   array<color_t, 7> colors;
   };
 
 struct manual_replay {
   string name;
-  vector<int> headings;
+  colorscheme cs;
+  vector<pair<int, int>> headings;
   };
 
 struct plan_replay {
   string name;
+  colorscheme cs;
   plan_t plan;
   };
 
@@ -75,32 +115,47 @@ struct checkerparam {
 
 using goalchecker = std::function<eGoalResult(checkerparam)>;
 
+using star_awarder = std::function<ld(ld)>;
+
 struct goal {
   color_t color;
   string desc;
   goalchecker check;
+  string achievement_name;
+  string leaderboard_name;
+  star_awarder sa;
   };
 
 using surface_fun = std::function<ld(hyperpoint h)>;
 
-ld heis_to_used_bonus(const hyperpoint&);
+struct ghost {
+  colorscheme cs;
+  vector<timestamp> history;
+  };
 
 struct level {
   string name;
+  string filename;
   char hotkey;
   string longdesc;
   flagtype flags;
+  int stars_needed;
   ld minx, miny, maxx, maxy;
   vector<string> map_tiles;
   ld startx, starty;
+  vector<level*> sublevels;
   ld scale;
-  surface_fun surface_heisenberg;
-  ld surface(hyperpoint h) { return surface_heisenberg(h) + heis_to_used_bonus(h); }
+  surface_fun surface;
   
   bool initialized;
   
-  level(string name, char hotkey, flagtype flags, string longdesc, ld minx, ld miny, ld maxx, ld maxy, const vector<string>& mt, ld sx, ld sy, const std::function<ld(hyperpoint h)>& surf, vector<goal> g) :
-    name(name), hotkey(hotkey), longdesc(longdesc), flags(flags), minx(minx), miny(miny), maxx(maxx), maxy(maxy), map_tiles(mt), startx(sx), starty(sy), surface_heisenberg(surf), goals(g) { initialized = false; }
+  level(string name, char hotkey, flagtype flags, int sneed, string longdesc, ld minx, ld miny, ld maxx, ld maxy, const vector<string>& mt, ld sx, ld sy, const vector<level*> subs, const std::function<ld(hyperpoint h)>& surf, vector<goal> g) :
+    name(name), hotkey(hotkey), longdesc(longdesc), flags(flags), stars_needed(sneed), minx(minx), miny(miny), maxx(maxx), maxy(maxy), map_tiles(mt), startx(sx), starty(sy), sublevels(subs), surface(surf), goals(g) {
+    initialized = false;
+    unil_texture = nullptr;
+    unil_texture_stepped = nullptr;
+    unil_texture_levels = nullptr;
+    }
   
   ld real_minx, real_miny, real_maxx, real_maxy;
 
@@ -155,6 +210,7 @@ struct level {
   void init();
 
   vector<timestamp> history;
+  vector<ghost> ghosts;
   
   vector<manual_replay> manual_replays;
   vector<plan_replay> plan_replays;
@@ -171,6 +227,7 @@ struct level {
   bool simulate();
   void draw_planning_screen();
   void draw_level(const shiftmatrix& V);
+  void draw_level_rec(const shiftmatrix& V);
   shiftmatrix plan_transform;
 
   hyperpoint get_spline(ld t);
@@ -180,15 +237,27 @@ struct level {
   bool handle_planning(int sym, int uni);
   void solve();
 
+  hyperpoint surface_point(hyperpoint h) { h[2] = surface(h); return h; }
+
   xy_float get_xy_f(hyperpoint h);
   xy_int get_xy_i(hyperpoint h) { return pfloor(get_xy_f(h)); }
   char mapchar(xy_int p);
   char mapchar(xy_float p) { return mapchar(pfloor(p)); }
   char mapchar(hyperpoint h) { return mapchar(pfloor(get_xy_f(h))); }
-  };
 
-/** ticks per second */
-inline const ld tps = 1000;
+  void gen_layer_list(vector<level*>& all) {
+    all.push_back(this); for(auto s: sublevels) s->gen_layer_list(all);
+    }
+
+  vector<level*> gen_layer_list() {
+    vector<level*> res; gen_layer_list(res); return res;
+    }
+
+  vector<timestamp> headings_to_history(manual_replay&);
+  void load_plan_as_ghost(plan_replay&);
+  void load_manual_as_ghost(manual_replay&);
+  void load_all_ghosts();
+  };
 
 /** wheel radius */
 inline ld whrad = 0.05;
@@ -202,6 +271,9 @@ inline ld gravity = 1 / 16.;
 /** the distance of camera from the wheel */
 inline ld whdist = 0.5;
 
+/** ghost repeat period */
+inline ld ghost_repeat = 5;
+
 /** minimum slope for rendering */
 inline ld min_gfx_slope = +90._deg;
 
@@ -210,6 +282,9 @@ inline ld gfx_slope = 0;
 
 /** default block unit */
 inline double dft_block = 1;
+
+/** default block unit */
+inline double simulation_speed = 1;
 
 extern map<char, color_t> bcols;
 extern map<char, array<string, 16> > submaps;

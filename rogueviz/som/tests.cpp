@@ -8,6 +8,8 @@ namespace rogueviz {
 
 transmatrix& memo_relative_matrix(cell *c1, cell *c2);
 
+namespace kohonen { extern debugflag debug_kohonen; }
+
 namespace kohonen_test {
 
 using namespace kohonen;
@@ -177,7 +179,7 @@ void create_edgedata() {
   
   if(!using_subdata) {
     for(auto e: edges) 
-      addedge(e.first, e.second, 1, false, any);
+      addedge(e.first, e.second, 1, any);
     }
   else {
     vector<int> nearest(isize(orig_data), -1);
@@ -199,7 +201,7 @@ void create_edgedata() {
         subedges.emplace(nearest[e.first], nearest[e.second]);
     // for(auto se: subedges) println(hlog, "subedges = ", se);
     for(auto sube: subedges)
-      addedge(sube.first, sube.second, 1, false, any);
+      addedge(sube.first, sube.second, 1, any);
     }
   
   println(hlog, "edgedata created, ", using_subdata);
@@ -294,7 +296,6 @@ bool kst_key(int sym, int uni) {
   else if((cmode & sm::NORMAL) && uni == 'r') {
     set_neuron_initial();
     t = tmax;
-    dynamicval ks(qpct, 0);
     while(!finished()) kohonen::step();
     println(hlog, "check result = ", check(true));
     check_energy();
@@ -321,10 +322,9 @@ int qenergy = 0;
 double tot_energy = 0;
 
 bool check(bool deb) {
-  dynamicval dd(debugflags, 0);
+  dynamicval<bool> dd(debug_kohonen.enabled, false);
   set_neuron_initial();
   t = tmax;
-  dynamicval dp(qpct, 0);
   while(!finished()) kohonen::step();
   analyze();
   int empty = 0, nonadj = 0, distant = 0;
@@ -414,7 +414,7 @@ void som_table() {
       set_parameters(cnt);
       do {
         tries[cnt].second++;
-        dynamicval dd(debugflags, 0); 
+        dynamicval<bool> dd(debug_kohonen.enabled, false);
         bool chk = check(false);
         if(chk)
           tries[cnt].first++;
@@ -438,7 +438,6 @@ void som_table() {
       println(hlog, "suc ", best, " :\n", sucorder[best]);
 
       for(int vv=10; vv>=0; vv--) {
-        dynamicval ks(qpct, 0);
         t = vv ? tmax * vv / 10 : 1;
         step();
         println(hlog, "t=", t);
@@ -962,10 +961,8 @@ void all_pairs(bool one) {
 
   hr::ignore(system(("mkdir -p " + dir + "/img").c_str()));
 
-  int sid = 0;
   for(auto s1: shapelist) {
     for(auto s2: shapelist) {
-      sid++;
       
       if(kohonen::gaussian == 2 && s2.substr(0, 4) != "disk" && s2.substr(0, 6) != "sphere") continue;
       if(only_landscape && s1.substr(0, 4) != "disk") continue;
@@ -1041,7 +1038,6 @@ void all_pairs(bool one) {
           }
 
         t = tmax;
-        dynamicval ks(qpct, 0);
         while(!finished()) kohonen::step();
 
         for(int i=0; i<orig_samples; i++) {

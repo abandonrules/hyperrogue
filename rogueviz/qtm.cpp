@@ -28,6 +28,26 @@ color_t rainbow_color_at(hyperpoint h) {
   ld hue = atan2(h[0], h[1]) / TAU;
   return rainbow_color(sat, hue);
   }
+
+int z_in_wall(int z) {
+  if(qmode == 0) return 1;
+  if(qmode == 1) {
+    if(z == 0) return 2;
+    return 1;
+    }
+  if(qmode == 2) {
+    if(z) return 0;
+    return 1;
+    }
+  if(qmode == 3) {
+    if(among(z, 1, 3, 4)) return 0;
+    return 1;
+    }
+  if(qmode == 4) {
+    return gmod(z,14) >= 3 ? 0 : 1;
+    }
+  return 1;
+  }
   
 void set_cell(cell *c) {
   if(mhybrid) {
@@ -38,14 +58,9 @@ void set_cell(cell *c) {
     c->landparam = c1->landparam;
     c->item = itNone;
     c->monst = moNone;
-    if(qmode == 1) {
-      if(hybrid::get_where(c).second == 0)
-        c->landparam = 0xFFFFFF;
-      }
-    if(qmode == 2) {
-      if(hybrid::get_where(c).second != 0)
-        c->wall = waNone;
-      }
+    int zw = z_in_wall(hybrid::get_where(c).second);
+    if(zw == 2) c->landparam = 0xFFFFFF;
+    if(zw == 0) c->wall = waNone;
     }
   else {
     if(c->land == laHive) return;
@@ -67,9 +82,20 @@ void set_cell(cell *c) {
       }
     c->landparam = col;
     c->land = laHive;
-    c->wall = (nil ? (c->master->zebraval & c->master->emeraldval & 1) : pseudohept(c)) ? waWaxWall : waNone;
+    bool wallmap =
+      (nil && nilv::nil_structure_index == 0) ? (c->master->zebraval & c->master->emeraldval & 1) :
+      (nil && nilv::nil_structure_index == 2) ? (gmod(c->master->zebraval - c->master->emeraldval, 3) == 0) :
+      pseudohept(c);
+    c->wall = wallmap ? waWaxWall : waNone;
     c->item = itNone;
     c->monst = moNone;
+    if(wallmap && nil) {
+      int z = zgmod(c->master->fieldval, nilv::nilperiod[2]);
+      int zw = z_in_wall(z);
+      println(hlog, z, " -> ", zw);
+      if(zw == 0) c->wall = waNone;
+      if(zw == 2) c->landparam = 0xFFFFFF;
+      }
     }
   }
 
@@ -190,6 +216,12 @@ int args() {
   return 0;
   }
 
+#if CAP_RAY
+#define IF_RAY(x) x
+#else
+#define IF_RAY(x)
+#endif
+
 auto hooks = 
     addHook(hooks_args, 100, args)
   + addHook_rvslides(180, [] (string s, vector<tour::slide>& v) {
@@ -205,19 +237,19 @@ auto hooks =
           "You can also obtain a different geometry (Berger sphere) by stretching along the fibers. Press 5 to stretch."+bonus
           ,
           [m] (presmode mode) {
-            setCanvas(mode, '0');
+            setWhiteCanvas(mode);
             slide_url(mode, 't', "Twitter link", "https://twitter.com/ZenoRogue/status/1166723332840001536");
             slide_url(mode, 's', "stretched Twitter link", "https://twitter.com/ZenoRogue/status/1258035231996682244");
             if(mode == pmStart) {
               set_geometry(gSphere);
               set_variation(eVariation::bitruncated);
-              set_geometry(gRotSpace);
-              slide_backup(rots::underlying_scale, .25);
+              hybrid::enable_rotspace();
+              slide_backup(hybrid::underlying_scale, .25);
               slide_backup(qmode, m);
-              #if CAP_RAY
+              IF_RAY(
               slide_backup(ray::max_cells, 32768);
               slide_backup(ray::fixed_map, true);
-              #endif
+              )
               slide_backup(camera_speed, .1);
               enable();
               start_game();
@@ -232,19 +264,19 @@ auto hooks =
           "Again, press 5 to stretch."+bonus
           ,
           [m] (presmode mode) {
-            setCanvas(mode, '0');
+            setWhiteCanvas(mode);
             slide_url(mode, 's', "stretched Twitter link", "https://twitter.com/ZenoRogue/status/1259143275115687936");
             if(mode == pmStart) {
               set_geometry(gKleinQuartic);
               set_variation(eVariation::bitruncated);
-              set_geometry(gRotSpace);
-              slide_backup(rots::underlying_scale, .25);
+              hybrid::enable_rotspace();
+              slide_backup(hybrid::underlying_scale, .25);
               slide_backup(qmode, m);
-              #if CAP_RAY
+              IF_RAY(
               slide_backup(ray::max_cells, 32768);
               slide_backup(ray::fixed_map, true);
               slide_backup(ray::want_use, 2);
-              #endif
+              )
               slide_backup(camera_speed, .1);
               enable();
               start_game();
@@ -256,6 +288,7 @@ auto hooks =
         }
       });
 
+#undef IF_RAY
 }
 
 }

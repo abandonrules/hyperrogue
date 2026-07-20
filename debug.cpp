@@ -15,6 +15,27 @@ EX bool debug_cellnames = false;
 
 EX vector<cell*> buggycells;
 
+map<string, struct debugflag*> *all_debugflags;
+
+void add_debugflag(const string& s, debugflag *d) {
+  if(!all_debugflags) all_debugflags = new map<string, struct debugflag*>;
+  if(all_debugflags->count(s)) printf("warning: duplicate debugflag: %s\n", s.c_str());
+  (*all_debugflags)[s] = d;
+  }
+
+/** generic errors */
+EX debugflag debug_errors = {"error", true};
+/** generic warnings */
+EX debugflag debug_warnings = {"warning", true};
+/** generic memory logs */
+EX debugflag debug_memory = {"memory"};
+/** generic initialization logs */
+EX debugflag debug_init = {"init", true};
+/** generic progress logs */
+EX debugflag debug_progress = {"progress", true};
+/** log the results of executed commands */
+EX debugflag debug_info = {"info", true};
+
 #if HDR
 template<class... T>
 void limitgen(T... args) {
@@ -108,10 +129,12 @@ vector<cheatkey> cheats = {
     cheatMoveTo(laCrossroads);
     addMessage(XLAT("Activated the Hyperstone Quest!"));
 
-    for(int t=1; t<ittypes; t++) 
-      if(t != itHyperstone && t != itBounty && itemclass(eItem(t)) == IC_TREASURE) {
+    generateLandList(isLandIngame);
+    for(eLand l: landlist) {
+      eItem t = treasureType(l);
+      if(required_for_hyperstones(t) && itemclass(eItem(t)) == IC_TREASURE)
         items[t] = inv::on ? 50 : 10;
-        }
+    }
     int qkills = inv::on ? 1000 : 200;
     kills[moYeti] = qkills;
     kills[moDesertman] = qkills;
@@ -120,6 +143,18 @@ vector<cheatkey> cheats = {
     kills[moMonkey] = qkills;
     kills[moCultist] = qkills;
     kills[moTroll] = qkills;
+    }},
+  cheatkey{'H', "toggle hold of orb powers", [] {
+    if(cheat_items_enabled) {
+      cheat_items_enabled = false;
+      addMessage(XLAT("Hold of orb powers disabled!"));
+      }
+    else {
+      cheat_items = items;
+      cheat_items_enabled = true;
+      cheater++;
+      addMessage(XLAT("Hold of orb powers enabled!"));
+      }
     }},
   cheatkey{'M', "deplete orb powers", [] {
     for(int i=0; i<ittypes; i++) 
@@ -154,7 +189,7 @@ vector<cheatkey> cheats = {
   cheatkey{'R'-64, "advance the rose wave", buildRosemap},
   #if CAP_EDIT
   cheatkey{'A', "start the Map Editor", [] {
-    lastexplore = turncount;
+    update_lastexplore();
     pushScreen(mapeditor::showMapEditor);
     }},
   cheatkey{'A'-64, "start the Vector Graphics Editor", [] {
@@ -232,8 +267,14 @@ vector<cheatkey> cheats = {
   cheatkey{'G'-64, "switch ghost timer", [] {
     timerghost = !timerghost;
     cheater++; 
-    addMessage(XLAT("turn count = %1 last exploration = %2 ghost timer = %3",
-      its(turncount), its(lastexplore), ONOFF(timerghost)));
+		if(shmup::on) {
+			addMessage(XLAT("in-game time = %1 last exploration = %2 ghost timer = %3",
+				its(shmup::curtime), its(lastexplore), ONOFF(timerghost)));
+			}
+		else {
+			addMessage(XLAT("turn count = %1 last exploration = %2 ghost timer = %3",
+				its(turncount), its(lastexplore), ONOFF(timerghost)));
+			}
     }},
   cheatkey{'G', "edit cell values", push_debug_screen},
   cheatkey{'L'-64, "cell info", [] {
@@ -660,6 +701,9 @@ int read_cheat_args() {
     PHASEFROM(2);
     shift(); vid.stereo_mode = eStereo(argi());
     }
+  else if(argis("-save-cheats")) {
+    save_cheats = true;
+    }
   else if(argis("-cmove")) {
     PHASE(3); shift();
     for(char c: args()) cheat_move(c);
@@ -812,7 +856,6 @@ int read_cheat_args() {
     }
   else if(argis("-lands")) {
     PHASEFROM(2);
-    cheat();
     stop_game();
     shift(); land_structure = (eLandStructure) (argi());
     }
@@ -841,10 +884,44 @@ int read_cheat_args() {
     glhr::debug_gl = true;
     #endif
     }
+  else if(argis("-dsgl")) {
+    #if CAP_GL
+    detailed_shader = true;
+    #endif
+    }
   else if(argis("-mgen-off")) {
     PHASEFROM(3);
     cheat();
     gen_wandering = false;
+    }
+  else if(argis("-log")) {
+    shift(); auto s = args();
+    if(debug_init) println(hlog, "logging: '", s, "'");
+    for(auto& w: *all_debugflags) if(w.first.find(s) != string::npos) w.second->enabled = true;
+    }
+  else if(argis("-log-all")) {
+    if(debug_init) println(hlog, "logging all");
+    for(auto& w: *all_debugflags) w.second->enabled = true;
+    }
+  else if(argis("-no-log")) {
+    shift(); auto s = args();
+    if(debug_init) println(hlog, "not logging: '", s, "'");
+    for(auto& w: *all_debugflags) if(w.first.find(s) != string::npos) w.second->enabled = false;
+    }
+  else if(argis("-log-none")) {
+    for(auto& w: *all_debugflags) w.second->enabled = false;
+    }
+  else if(argis("-log-to")) {
+    shift();
+    if(debug_init) println(hlog, "writing to ", argcs());
+    if(debugfile) fclose(debugfile);
+    debugfile = fopen(argcs(), "wt");
+    }
+  else if(argis("-log-append")) {
+    shift();
+    if(debug_init) println(hlog, "writing to ", argcs());
+    if(debugfile) fclose(debugfile);
+    debugfile = fopen(argcs(), "at");
     }
   else if(argis("-canvasfloor")) {
     shift(); canvasfloor = argi();

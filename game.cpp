@@ -62,8 +62,20 @@ EX vector<int> hrandom_permutation(int qty) {
 /** Use \link hrngen \endlink to generate a floating point number between 0 and 1.
  */
 
-EX ld hrandf() { 
-  return (hrngen() - hrngen.min()) / (hrngen.max() + 1.0 - hrngen.min());
+EX ld randf_from(std::mt19937& r) { 
+  return (r() - r.min()) / (r.max() + 1.0 - r.min());
+  }
+
+EX ld hrandf() { return randf_from(hrngen); }
+
+/** returns true with probability p */
+EX bool chance(double p) {
+  p *= double(hrngen.max()) + 1;
+  auto l = hrngen();
+  auto pv = (decltype(l)) p;
+  if(l < pv) return true;
+  if(l == pv) return chance(p-pv);
+  return false;
   }
 
 /** Returns an integer corresponding to the current state of \link hrngen \endlink.
@@ -109,8 +121,6 @@ EX eMonster active_switch() {
 
 EX vector<cell*> crush_now, crush_next;
   
-EX int getDistLimit() { return cgi.base_distlimit; }
-
 EX void activateFlashFrom(cell *cf, eMonster who, flagtype flags);
 
 EX bool saved_tortoise_on(cell *c) {
@@ -205,7 +215,7 @@ EX bool activateRecall() {
   if(shmup::on) shmup::recall();
   if(multi::players > 1) multi::recall();
   bfs();
-  checkmove();
+  checkmove(false);
   drawSafety();
   addMessage(XLAT("You are recalled!"));
   return true;
@@ -347,6 +357,8 @@ EX void pushThumper(const movei& mi) {
     if(w == waThumperOn)
       explode = 2;
     }
+  if(w == waExplosiveBarrel && cto->wall == waMineMine)
+    explode = 2;
   destroyTrapsOn(cto);
   if(cto->wall == waOpenPlate || cto->wall == waClosePlate) {
     toggleGates(cto, cto->wall);

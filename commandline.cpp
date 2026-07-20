@@ -16,10 +16,20 @@ EX string rsrcdir = RESOURCEDESTDIR;
 EX string rsrcdir = "";
 #endif
 
+EX bool delayed_start;
+
 #if CAP_COMMANDLINE
 EX string scorefile = "hyperrogue.log";
 
 EX namespace arg {
+
+template<class T> T read_index(T fallback, int max, const string& ss) {
+  if(ss[0] < '0' && ss[0] > '9') return fallback;
+  int val = atoi(ss.c_str());
+  if(val < 0 || val >= max) return fallback;
+  return T(val);
+  }
+
 EX eLand readland(const string& ss) {
   if(ss == "II") return laCrossroads2;
   if(ss == "III") return laCrossroads3;
@@ -29,7 +39,7 @@ EX eLand readland(const string& ss) {
     return eLand(l);
     break;
     }
-  return laNone;
+  return read_index(laNone, landtypes, ss);
   }
 
 EX eItem readItem(const string& ss) {
@@ -37,7 +47,7 @@ EX eItem readItem(const string& ss) {
     return eItem(i);
     break;
     }
-  return itNone;
+  return read_index(itNone, ittypes, ss);
   }
 
 EX eMonster readMonster(const string& ss) {
@@ -46,7 +56,7 @@ EX eMonster readMonster(const string& ss) {
     return eMonster(i);
     break;
     }
-  return moNone;
+  return read_index(moNone, motypes, ss);
   }
 EX }
 
@@ -59,13 +69,37 @@ EX void initializeCLI() {
 #endif
 
   #ifdef FHS
-  static string sbuf, cbuf;
-  if(getenv("HOME")) {
-    sbuf = getenv("HOME"); sbuf += "/."; sbuf += scorefile;
-    cbuf = getenv("HOME"); cbuf += "/."; cbuf += conffile;
-    scorefile = sbuf;
-    conffile = cbuf.c_str();
-    }
+  auto try_place = [&] (string env, string suffix, string& which_file, bool only_file) {
+    char *res = getenv(env.c_str());
+    if(!res) return false;
+    string buf = res; buf += suffix; buf += "/hyperrogue";
+    if(only_file && file_exists(buf + "/" + which_file)) {
+      which_file = buf + "/" + which_file;
+      return true;
+      }
+    if(!file_exists(buf)) system(("mkdir -p " +buf).c_str());
+    which_file = buf + "/" + which_file;
+    return true;
+    };
+
+  auto try_dot = [&] (string& which_file) {
+    char *res = getenv("HOME");
+    string buf = res;
+    buf += "/."; buf += which_file;
+    if(!file_exists(buf)) return false;
+    which_file = buf;
+    return true;
+    };
+
+  if(try_dot(scorefile)) {}
+  else if(try_place("XDG_DATA_HOME", "", scorefile, true)) {}
+  else if(try_place("HOME", "/.local/share", scorefile, false)) {}
+  else if(try_place("XDG_DATA_HOME", "", scorefile, false)) {}
+
+  if(try_dot(conffile)) {}
+  else if(try_place("XDG_CONFIG_HOME", "", conffile, true)) {}
+  else if(try_place("HOME", "/.config", conffile, true)) {}
+  else if(try_place("XDG_CONFIG_HOME", "", conffile, false)) {}
   #endif
   }
 
@@ -105,11 +139,7 @@ EX namespace arg {
   EX bool argis(const string& s) { if(args()[0] == '-' && args()[1] == '-') return args().substr(1) == s; return args() == s; }
 
   EX color_t argcolor(int bits) {
-    string s = args();
-    auto p = find_color_by_name(s);
-    if(p && bits == 24) return p->second;
-    if(p && bits == 32) return (p->second << 8) | 0xFF;
-    return strtoll(argcs(), NULL, 16);
+    return parsecolor(args(), bits == 32);
     }
   
   int parameter_id;
@@ -175,15 +205,8 @@ int arg::readCommon() {
   else if(argis("-rsrc")) { PHASE(1); shift(); rsrcdir = args(); }
   else if(argis("-nogui")) { PHASE(1); noGUI = true; }
 #ifndef EMSCRIPTEN
-#if CAP_SDL
-  else if(argis("-font")) { PHASE(1); shift(); fontpath = args();
-    #ifdef FONTCONFIG
-    font_to_find = "";
-    #endif
-    }
-#ifdef FONTCONFIG
-  else if(argis("-find-font")) { PHASE(1); shift(); font_to_find = args(); }
-#endif
+#if CAP_SDLTTF
+  else if(argis("-font")) { PHASE(1); shift(); font_id = isize(font_filenames); font_filenames.push_back(args()); font_names.push_back({args(), "commandline"}); }
 #endif
 #endif
 
@@ -196,42 +219,6 @@ int arg::readCommon() {
     PHASE(1);
     offlineMode = true;
     }
-  else if(argis("-no-stamp")) {
-    debugflags &=~ DF_TIME;
-    }
-  else if(argis("-debf")) {
-    shift(); 
-    string s = args();
-    for(char c: s) {
-      for(int i=0; i<int(strlen(DF_KEYS)); i++) {
-        if(DF_KEYS[i] == c) debugflags |= (1<<i);
-        else if(DF_KEYS[i] == (c ^ 32)) debugflags &= ~(1<<i);
-        }
-      if(c >= '0' && c <= '9') {
-        debugflags &= DF_TIME;
-        if(c >= '1')
-          debugflags |= DF_INIT | DF_WARN | DF_MSG | DF_ERROR;
-        if(c >= '2')
-          debugflags |= DF_GEOM | DF_GP | DF_LOG | DF_FIELD | DF_POLY;
-        if(c >= '3')
-          debugflags |= DF_TURN | DF_STEAM;
-        if(c >= '4')
-          debugflags |= DF_GRAPH | DF_MEMORY;
-        }
-      else if(c == '+') {
-        if(debugfile) fclose(debugfile);
-        shift(); 
-        println(hlog, "writing to ", argcs());
-        debugfile = fopen(argcs(), "at");  
-        }
-      else if(c == '@') {
-        if(debugfile) fclose(debugfile);
-        shift(); 
-        println(hlog, "writing to ", argcs());
-        debugfile = fopen(argcs(), "wt");  
-        }
-      }
-    }
   else if(argis("-run")) {
     PHASE(3); 
     start_game();
@@ -239,7 +226,6 @@ int arg::readCommon() {
     }
   else if(argis("-msg")) {
     shift(); addMessage(args());
-    printf("%s\n", args().c_str());
     }
   else if(argis("-msg0")) {
     clearMessages();
@@ -326,6 +312,21 @@ int arg::readCommon() {
     clearMessages();
     nohud = true;
     mapeditor::drawplayer = false;
+    no_find_player = true;
+    }
+
+  else if(argis("-vizs")) {
+    PHASE(3);
+    showstartmenu = false;
+    start_game();
+    popScreenAll();
+    clearMessages();
+    nohud = true;
+    mapeditor::drawplayer = false;
+    no_find_player = true;
+    game_keys_scroll = true;
+    smooth_scrolling = true;
+    touchmode = tmode::info;
     }
 
   else if(argis("-vizhr")) {
@@ -333,6 +334,21 @@ int arg::readCommon() {
     showstartmenu = false;
     popScreenAll();
     clearMessages();
+    }
+
+  else if(argis("-save-mode")) {
+    PHASEFROM(2);
+    save_mode_to_file(shift_args());
+    }
+
+  else if(argis("-load-mode")) {
+    PHASEFROM(2);
+    try {
+      load_mode_from_file(shift_args());
+      }
+    catch(hstream_exception& e) {
+      println(hlog, "exception!");
+      }
     }
 
 // informational
@@ -379,47 +395,60 @@ int arg::readCommon() {
     }
   else if(argis("")) {}
   else if(argis("-help") || argis("-h")) {
-    printf("Press F1 while playing to get ingame options.\n\n");
-    printf("HyperRogue accepts the following command line options:\n");
-    printf("  -c FILE        - use the specified configuration file\n");
-    printf("  -s FILE        - use the specified highscore file\n");
-    printf("  -m FILE        - use the specified soundtrack (music)\n");
-    printf("  -se DIR        - the directory containing sound effects\n");
-    printf("  -lev FILE      - use the specified filename for the map editor (without loading)\n");
-    printf("  -load FILE     - use the specified filename for the map editor\n");
-    printf("  -canvas COLOR  - set background color or pattern code for the canvas\n");
-    printf("  --version, -v  - show the version number\n");
-    printf("  --help, -h     - show the commandline options\n");
-    printf("  -f*            - toggle fullscreen mode\n");
-    printf("  -wm n, -mm n   - start in the given wallmode or monmode\n");
-    printf("  -r WxHxF       - use the given resolution and font size\n");
-    printf("  -o*            - toggle the OpenGL mode\n");
-    printf("  -W LAND        - start in the given land (cheat)\n");
-    printf("  -W2 LAND       - make the given land easy to find (also turns on autocheat)\n");
-    printf("  -ch            - auto-enable cheat mode\n");
-    printf("  -geo n         - switch geometry (1=Euclidean, 2=spherical, 3=elliptic, 4/5=quotient)\n");
-    printf("  -qs <desc>     - fieldpattern: quotient by the given <desc> (must be followed by qpar)\n");
-    printf("  -qpar <prime>  - fieldpattern: use the given prime instead of 43\n");
-    printf("  -cs <desc>     - fieldpattern: set subpath to the given <desc> (cannot be followed by qpar)\n");
-    printf("  -csp           - fieldpattern: find the subpath of order <prime> (cannot be followed by qpar)\n");
-    printf("  -S*            - toggle Shmup\n");
-    printf("  -P n           - switch Shmup number of players (n=1..7)\n");
-    printf("  -PM            - switch the model index\n");
-    printf("  -H*            - toggle Hardcore\n");
-    printf("  -T*            - toggle Tactical\n");
-    printf("  -7*            - toggle heptagonal mode\n");
-    printf("  -C*            - toggle Chaos mode\n");
-    printf("  -R*            - toggle Random Pattern\n");
-    printf("  -Y id          - enable Yendor, level id\n");
-    printf("  -D             - disable all the special game modes\n");
-    printf("  -L             - list of features\n");
-    printf("  -debugf 7      - output debugging information to hyperrogue-debug.txt\n");
-    printf("  -debuge 7      - output debugging information to stderr\n");
-    printf("  -offline       - don't connect to Steam (for Steam versions)\n");
-    printf("  -I ITEM n      - start with n of ITEM (activates cheat and disables ghosts)\n");
-    printf("  -fix           - fix the seed\n");
-    printf("Toggles: -o0 disables, -o1 enables, -o switches\n");
-    printf("Not all options are documented, see hyper.cpp\n");
+    printf("\nCommandline help follows. If you meant in-game help, press F1 while playing.\n\n");
+    printf("Some commadline options automatically enable the cheat mode.\n");
+    printf("ID is a part of the name of the chosen option; indices are also allowed.\n");
+    printf("You can change various configuration settings using the [name]=[value] format, e.g. , `unlock_all=1`.\n");
+    printf("The names are as in the config file, and formulae are allowed.\n");
+    printf("HyperRogue has lots of options; only the basic ones are documented here.\n");
+
+    printf("\nBasic options:\n");
+    printf("  --version, -v      - show the version number\n");
+    printf("  --help, -h         - show the commandline options\n");
+    printf("  -offline           - do not connect to Steam (for Steam versions)\n");
+    printf("  -L                 - list of features\n");
+    printf("  -fix               - fix the RNG seed (cheat)\n");
+    printf("  -fixx SEED         - fix the RNG seed to the given value (cheat)\n");
+    printf("  -noscr             - skip the start menu\n");
+    printf("  -viz               - visualization mode: do not display the game elements\n");
+    printf("  -vizs              - visualization mode with smooth control\n");
+    printf("  -g                 - debug mode: do not use scorefile, fix seed, enable cheat mode\n");
+    printf("  -nogui             - do not start the GUI\n");
+    printf("  -run               - run (before handling other options) until the user presses F10\n");
+    printf("  -exit              - exit the program\n");
+
+    printf("\nFile options:\n");
+    printf("  -c FILE            - use the specified configuration file\n");
+    printf("  -s FILE            - use the specified highscore file\n");
+    printf("  -m FILE            - use the specified soundtrack (music)\n");
+    printf("  -se DIR            - the directory containing sound effects\n");
+    printf("  -rsrc DIR          - the directory containing resources\n");
+    printf("  -font FILE         - use the specified font file\n");
+
+    printf("\nLogging:\n");
+    printf("  -log PATTERN       - log events matching the pattern\n");
+    printf("  -no-log PATTERN    - do not log events matching the pattern\n");
+    printf("  -log-to FILE       - log to the given file\n");
+    printf("  -log-append FILE   - append log to the given file\n");
+
+    printf("\nQuick testing:\n");
+    printf("  -load FILE         - load a level file created using the map editor\n");
+    printf("  -geo ID            - choose the geometry\n");
+    printf("  -PM ID             - choose the projection/model\n");
+    printf("  -W ID              - start in the given land\n");
+    printf("  -W2 ID             - make the given land easy to find (cheat)\n");
+    printf("  -W3 ID             - like -W2 but can be used multiple times (cheat)\n");
+    printf("  -I ID n            - start with n of item ID nearby (cheat)\n");
+    printf("  -M ID n            - start with n of monster ID nearby (cheat)\n");
+    printf("  -MK ID n           - start with n of kills of monster ID (cheat)\n");
+    printf("  -canvas ID         - set background color or pattern code for the canvas\n");
+
+    printf("\nTroubleshooting suggestions:\n");
+    printf("  -c test1 -s test2              - to check if config/score files are responsible\n");
+    printf("  -noshaders -o0 -wm 3 -mm 2     - to disable complex graphics (-o0 disables OpenGL, -wm and -mm disable 3D walls/monsters)\n");
+    printf("  -log-all -log-to error.txt     - to log everything to a file error.txt\n");
+    printf("  -offline                       - to troubleshoot online connection issues\n");
+
     exit(0);
     }
   else return 1;
@@ -464,6 +493,7 @@ EX namespace arg {
   void read(int phase) { 
     curphase = phase;
     callhooks(hooks_config);
+    dynamicval<bool> ds(delayed_start, true);
     while(pos < isize(argument)) {
       int r = callhandlers(1, hooks_args);
       switch (r) {

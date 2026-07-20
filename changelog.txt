@@ -5039,3 +5039,657 @@ Updates to the crossbow mode:
 - fixed crossbow mode not changing the PTM/etc. scoreboards
 - mode change confirmation is now only required when actually changing a relevant option
 - new aim style 'geometric'
+
+2023-12-02 12:54 Update 12.1z:
+Gameplay (mostly crossbow modes)
+- an option to automatically shoot when clicking a tile with mouse
+- press 'f' + direction for auto fire at distant enemies in the given direction
+- bulls are now enraged by crossbow shots
+- ratlings no longer move when shooting pointlessly
+- the warped space distracts you from reloading while staying in place
+- Warped Coast/Sea now prevents crossbow bolts from moving between triangles
+- clarified that only direct melee attacks trigger Storms/Flash
+- fixed Horns in the crossbow mode; the unarmed Princess is now also able to use Empathy+Thorns and Empathy+Horns
+- reduced CR3 land requirement to 20 in casual
+
+Other
+- fixed the drawing mode on quotient spaces (including torus display)
+- fixed point recognition in rug mode
+- cleaned up high-FOV and stereo modes into one setting
+
+2023-12-27 12:54 Update 13.0:
+
+Summary post: https://zenorogue.blogspot.com/2023/12/hyperrogue-130.html
+
+Voronoi mode fixes:
+- fixed Caribbean
+- made Rlyeh and Temple appear, and Haunted and Free Fall are now unavailable
+- better land compatibility
+- fixed CR2
+- fixed Land of Storms (in Horodisk and Voronoi)
+
+Crossbow fixes:
+- in shmup, crossbow bolts now pierce multi-tile monsters, and fire-on-mouse is disabled
+- remove crossbow paths on orb use
+- pressing ESC key while in fire mode now disables the fire mode
+- geometric crossbow can now hit monsters on the edge of vision and inside walls
+- crossbow achievements and leaderboards
+- fixed false game over messages after shooting a bow
+
+other updates:
+- updated the Czech and Polish translations
+- display achievement eligiblity
+- make the Key fireproof; make tortoise if first 21/21 tile created in > 100 turns (thanks to jlm)
+
+Other fixes:
+- fixed restoring golems in casual mode
+- fixed a crash while loading races
+- fixed a bug with embedded maps (i.e., 2D maps in 3D) being destroyed when the game is restarted
+- fixed the drawing of half-vines and mirror walls in spatial
+- fixed the bug where tides may move on orb use
+- fixed Sol, NIH and SolN embeddings being always displayed as legal
+- fixed the name displayed on mouseover for slime
+
+2024-01-12 08:59 Update 13.0a:
+
+- fixed some bugs with high-FOV modes (reset shaders, show upper FOV ranges correctly, buggy two-eye rendering)
+- as a new positive, the Curse of Fatigue makes you not care about roses when very fatigued
+- changed one Prince(ss) message
+- crossbow leaderboards should be fixed
+- fixed button placement on Android once more
+- fixed mirrors in crossbow fire mode
+- the bump-to-shoot flag now actually works
+- fixed a bug in "memory saving" mode to not remove the current altmap
+- variant fisheye projection
+- fixed tides in shmup and when scrolling
+- the dipping rule no longer affects Tiger's Eyes
+- screenshots were sometimes not correctly centered
+
+2024-02-23 01:34 Update 13.0b:
+
+When you are checkmated or die, a message explaining the cause is now displayed in the quit screen and saved in the local score file.
+
+Crossbow fixes:
+- opening inventory mode when you can just shoot should be fixed
+- rusałka curses now work
+- fixed tricking Pikemen with a bow
+- while rosed, you can now only shoot when this kills a monster at point blank in the rose direction
+
+Crash fixes:
+- fixed crash when e.g. entering 'ma' as a value, or when editing some settings such as sight range bonus
+- fixed a crash when viewing help on tide tiles (thanks to jlm)
+- fixed a crash with too large band
+- fixed some cases where untruncated/unrectified/warped maps would freeze when computing distances or crash due to trees are not known
+
+Gameplay fixes:
+- restarting a race now resets pause counter
+- World Turtle kills are recorded (thanks to jlm)
+- boat can go thru non-adjacent using Orb of Warp in shmup
+- fixed the items (key, OoY, baby tortoise) moved by the Orb of Chaos and Curse of Repulsion
+- fixed the Yard bug (graveless graveyard when you somehow used Orb of Safety in the Haunted Woods strip)
+- Trollheim no longer generates adjacent non-unlocked troll lands
+- alternative land unlock rules when monster/item requested is not available due to geometry etc
+
+Other:
+- in Goldberg variation, x/y limit is now based on what the engine allows, and 'dual of current' no longer can circumvent the limits
+- New projection: polar coordinates
+
+2024-02-24 09:54 Update 13.0c:
+
+- fixed the off-by-one error in thehelp line displayed for tides and lava
+- fixed a bug with rusalka-cursing the first tile when you shoot
+- when you press ESC in the gameover screen, the YASC message is displayed
+- special YASC message for pinches, and being on the Round Table
+- in YASC messages, mention the knights blocking the way, and also mention their names
+
+2024-03-24 11:32 Update 13.0d:
+
+System:
+* itch.io Windows binaries and Steam Windows/Linux binaries now use SDL2 instead of SDL1.2
+
+Custom mode:
+* A new mode where you can select the lands to be used.
+* Another menu can be used to save a mode to a file.
+* Enabling Halloween or Space Rocks in infinite geometries now produces something that makes sense.
+* Previously changing the creature scale was disabled in non-cheat shmup. Now it can be changed (but it counts as a cheat).
+* New land structure 'landscape'.
+
+Graphics:
+* Font scale used in ASCII maps now can be changed.
+* Items moved by Orb of Water, Magnetism, Winter, Space, and Repulsion are now animated.
+* VR: fixed items, Ivy, compasses, etc. being placed incorrectly in 2.5D.
+* VR: compass/Yendor targets now should be displayed.
+
+Gameplay:
+* Void Beasts are now pulled by Orb of Air.
+* Changed the electrical properties of some walls to make Eclectic City more friendly.
+* Trees etc are now mentioned as blockers in YASC messages.
+* YASC codes work better if killed on a 10+ tile.
+
+Alternate geometries:
+* Clear more walls when generating Wild West in high GP.
+* Better Emerald in Octagon chamfered.
+* Fixed Emerald Mine and Vineyard generating very bad in {n,oo} and binary tiling.
+* Fixed the lack of non-trapdoors in Zebra 435.
+* Better 'pseudohept' tiles in INVERSE tilings.
+* In grid mode, don't try to draw greatwall lines outside of normal geometry pure/bitruncated.
+* Nicer cell boundaries used in Archimedean and irregular tilings.
+* When you save an irregular map using Orb of Safety or map editor (or custom mode), it should now save the irregular map used.
+
+Bug fixes:
+* Fixed dice hints over different heights.
+* Fixed troll nests in Horodisk/Voronoi.
+* Fixed a crash when running away from Clearing in single-land mode.
+* Some values are tracked in savefiles while previously they did not (fatigue, snake oil, crossbow reload time, gun ammo, etc.) (Thanks to jlm)
+
+2024-03-24 20:10 Update 13.0e:
+
+* in Steam, option `-achievement-always` to always display achievements, even if you already got them.
+* rosebushes now show up on the radar in 3D geometries, and they now blink if they are close to going off
+* if you are in water (and have no Fish), you can now see Orbs of Fish and Aether in adjacent water tiles, and also you can move there and pick them up
+* crossbow bolt now ignore rose restrictions on attack
+* migrating to SDL2 caused crashes in shmup, with the game_keys_scroll option, and with the shift-target option -- this should be fixed
+* 'custom' land list mode is now mentioned in the watermark (bottom left of the screen)
+
+2024-03-27 23:47 Update 13.0f:
+
+* new messages on Orb of Phasing, Slaying, and Weakness
+* more accurate messages on dice pushing
+* when loading save, load full mode data including custom lands
+* irregular maps no longer change on every load due to floating point precision
+* [custom lands list] Space Rock monsters now drop treasure only if in Space Rock land
+* ineligible starting land also if land is not in game
+* [custom lands list] do not freeze if no new sealand is available
+* in countHyperstones, two variants of Mirror are counted once
+* specially generated lands (horocycles, Brown Islands) now respect Unlocked and LandIngame rules
+* fixed some more crashes related to SDL2 (e.g., right-click in shmup)
+
+2024-04-09 02:46 Update 13.0g:
+
+- New land structures: CR2-like, CR3-like, and "cursed"
+- Space Rocks and Halloween stuff are now saved correctly (thanks to jlm)
+- since the Aether users now see adjacent items in water, they can also pick them up
+- fixed the bug where moving a boat with Compass would cause items to be picked up
+- pushing an exploding barrel on a mine now causes an explosion
+- fixed pressing numpad keys with numpad on acting both as moves and quick-keys
+- a new pseudoheptagon pattern in standard binary and ternary tiling
+- fixed the Free Fall being not inaccessible from some lands
+- auto-pause shmup game when it loses focus
+- fixed some possible crashes: with keys being generated on ivy, when using Orb of Space on Orb of Safety, Ocean in the chaos modes, after killing 400 mutants, when generating YASC message
+
+2024-05-09 10:45 Update 13.0h
+
+- Orb of Summoning now works on deep water, shallow water, and Camelot moat tiles
+- more settings for minefield graphics
+- removed Haunted and Elemental from the landscape mode
+- stone gargoyles and statues are now non-blocking for missiles
+- Orb of Earth now cancels Invisibility only if it is doing something
+- new line pattern 'wall highlight', and also line patterns are now easier to reach (via creative mode)
+- fixed the Yendor beacon to appear in the correct place (usually on the boundary, not the closest visible tile)
+
+Minor bug fixes:
+- some leaderboards still activated when custom_land_list was used
+- fixed CR3 generated in CR2 layout
+- fixed CR2 generated in CR3/CR4 layouts
+- fixed single wrong tile of the first land when safetying in landscape etc
+- fixed 534 distance computation
+- fixed CLI -picload
+- clear boats from removed Orbs of Water
+- fixed a crash setting landscape_div to 0
+- fixed a crash with irregular spherical maps
+- show weapon watermark with geometric xbow (thanks to @jlm)
+
+2024-05-10 19:36 Update 13.0i
+
+- reverted numlock fix on MAC since it apparently does not work as expected
+- right shift no longer assumes mouse-strafe if no mouse moved
+- fixed the "display zeros in minefield" option
+- fixed crashes when adding/deleting colors
+- rosewaves no longer go through the fake cells in Crystal World
+- changed the guarding in Power landscape
+- display Compass and Orb of Yendor beacon on radar
+- fixed some problems with tides (thanks to jlm)
+
+2024-05-28 19:35 Update 13.0j
+
+- display charge count for all orbs, and activation costs for frog-like orbs
+- "(v) menu" can now be replaced to show turn count or another parameter/formula
+- Orb of Luck now removes the blue bug bias
+- fixed the shape pattern for converted tilings
+- fixed a bug in the tessellation converter
+- the game spent 5s on startup initializing SDL joysticks -- this now can be avoided
+- chainspilling lava slimes
+- more explanation is now available for ON/OFF parameters
+- fixed product rendering
+- fixed model orientation for spiral
+- fixed a crash when changing the 'race angle' setting
+- fixed a possible crash when trying to build CR2 or CR5 next to CR4
+
+Changes to the parameter/formula system:
+- more values and functions are now available in formulas (including the new color formulas, including the 'formula' canvas pattern)
+
+2024-05-28 20:21 Update 13.0k
+
+- fixed orb change display
+- fixed backward incompatible color reading from config
+- fixed symbol changed enable archimedean unexpectedly
+
+2024-05-29 13:54 Update 13.0l
+
+- fixed some more errors with the config file
+- show charges for Orb of Air, also fixed the line for Orb Energy
+- fixed some characters not being enterable in SDL2
+
+2024-06-06 19:06 Update 13.0n
+
+Bugfixes:
+- (v13.0m) fixed a bug with smart range
+- (v13.0m) partially fixed a bug with non-enterable characters in string edit in SDL2 (Windows)
+- fixed some bugs with not recognizing modes from earlier versions (for saved score purposes)
+- fixed land search in Overview
+- fixed a problem when loading saved maps from tes files
+- YASC code explanation now appears when it should (not when it should not)
+
+Gameplay:
+- boats now erase rose waves when moved
+- illegal moves into dice now become kills if you have an Orb of Slaying
+- in Chaos mode, crossroads now appear if Hyperstones are unlocked (thanks to jlm)
+
+Modes:
+- improved custom mode manager: it now displays all the modes you have tried (with PTM/YC/saved scores), and also you can name modes
+
+2024-06-06 19:06 Update 13.0o
+Fixed a crash on load.
+
+2024-06-22 09:56 Update 13.0p
+- radar: inventory is no longer drawn over it, fixed not being drawn full, a bit better placement
+- wall/floor textures are now configurable
+- do not generate modecodes without need
+- fixed compass pointers with illegal values or not reaching the target
+- auto-generate waOpenPlate in Palace pure {7,3} starting tile
+- fixed the texture (.txc) loader
+- number parser now reads scientific notation correctly
+- fixed some bugs where 'search for setting' would not accept letters pressed for search (and edit something instead)
+
+Improvements in geometries (mostly twisted product/fake):
+- fake geometry now works (better) with: bitruncated tilings, rectified tilings, GP(a,b) {x,3} if a-b not divisible by 3, GP(a,b) {x,4} if a-b not divisible by 2
+- "rotation space" is now called (more correctly) "twisted product" and works in Euclidean base geometry too
+- raycaster now works better (renders the cells correctly) in twisted geometries
+- Nil quotient space now better (the number of Z-levels = the number of X-levels * the number of Y-level is allowed)
+- fix a possible crash in fake+product
+- 'fixed Y/Z rotation' now works in all geometries where it makes sense (all 3D geometries except some spherical and non-binary hyperbolic)
+- fixed incorrect tiles when unrectifying pure (e.g. {5,4})
+- a new hex-based honeycomb for Nil (well, same as the one obtained by using "twisted product" on hex)
+
+2024-06-28 12:32 Update 13.0q
+Fixes to 3D projections (hyperboloid/ball/hemisphere):
+- fixed the default rotation to look nicely
+- smaller default 'maximum Z' so the hyperboloids fit on screen
+- made the angle in hemisphere model be consistent with other models
+- fixed the lines
+- a "halve the distances" projection parameter for hemispheres/hyperboloids (used to visualize a smaller hyperboloid model based on Clifford algebras)
+
+Fixes to fake curvature and twisted products: (some fake+twisted combos still do not work correctly)
+- twisted-product and fake can now be enabled in more variation tilings that happen to be semi-regular (GP(1,1) unrectified and GP(1,1) {x,4})
+- fixed bug with fake curvature in spherical/quotient spaces
+- corrected the floor shapes in bitruncated+fake
+
+Other:
+- fixed the Euclidean 2D modes changing rotation incorrectly
+- correct text handling in SDL2
+- in the Princess challenge, do not generate wandering monsters too close to the Princess's cell
+
+2024-06-29 23:49 Update 13.0r
+Improvements to the map/shape/draw editor:
+- changed the UI style of the editor to match the rest of the game
+- the option to export from the shape editor now also saves to a file
+- 'draw' in drawing tool did not draw correctly when you were holding the mouse while rotating by moving the mouse (or by doing this while a movement animation was active)
+
+- fixed grammar on 'activation cost: 1 charge'
+- twisted product + fake curvature should work
+- fixed Wild West Yendor Challenge
+- Orb of Speed now works correctly with even number of players
+
+2024-07-10 6:56 Update 13.0s
+
+- font selection
+- configurable colors in Prairie/Mountain/Ivory/Freefall/Yendorian stripes
+- custom land list mode now can configure PTM runs/multipliers
+
+2024-07-27 23:28 Update 13.0t
+Mostly bug fixes:
+- fixes to custom land list PTM settings saving
+- PTM (etc) scores saved in other modes were incorrectly loaded as standard mode
+- PTM title line no longer obscures the stats of the top land in high resolution
+- do not flip the player when having Orb of the Frog
+- if you have Orb of Safety, your game will be saved (even if you have 0 treasure)
+- setting custom land difficulty to 0 no longer crashes the game
+- improved the map editor with 'centered menu' option and narrower screens
+- improved the performance of map editor (especially with 'snap to the grid' option)
+- pressing 0..9 keys now changes the radius in map editor
+- fixed some cases when 'empty canvas' had random walls
+- binary-like tilings (including Solv) work again
+- some SL2 fixes and improvements
+- saving PNGn should no longer crash the game
+
+- changed the default color in drawing tool to red
+- also the parser accepts e.g. `lands_at(25)` to give the number of lands at 25 treasures
+
+2024-08-21 20:29 Update 13.0u
+- Chinese translation, thanks to 超威蓝猫
+- fixed linked settings
+- raycaster no longer disables fixed_YZ without being asked
+- fixed 'keep Y' in twisted non-sphere
+- do not exit menus on left/right arrow presses in SDL2
+- fixed Crossroads III unlocking in casual
+
+2024-10-12 09:46 Update 13.0v
+- fixed display of the Hell unlock rule in the causal mode
+- an option to display the number of save counts, load counts, and load branching in the casual mode ("semicasual" option)
+- frogs now stun adjacent non-frog enemies for 2 turns
+- Strong Wind and Orb of Vaulting now better with Orb of the Sword
+- Tab now can be used to control pushing direction (thanks to jlm)
+- fixed Emerald Mines in {5,3,4}
+- fixed the "fixed Y/Z rotation" conflict with walking mode
+- texture mode: a parameter for texture opacity
+- half-plane and Poincare disk, when used in H2xR, no longer work in layers, instead they produce conformal models of the 3D geometry
+- "Chinese ASCII" option
+- more diversity in the default players (in multiplayer)
+- fixed collision detections in the shmup mode in quotient spaces (still not perfect but more focusing on being fast than 100% correctness)
+- new player shape: spaceship (mostly for shmup/Space Rocks, and originally designed for Relative Hell, but nothing stops you from using it in HR)
+
+2024-12-22 21:43 Update 13.0w
+- a surprise for Dec 24-26 (a graphical effect, can be disabled in graphics -> extra graphical effects)
+- the broken prairie should be fixed
+- fixed the monster placement in product geometries
+- less options in the ESC-menu during tours
+- fixed a crash when approaching a Grail not in Camelot (e.g., placed by the map editor)
+- "unlock_all" setting to unlock all game content
+- fixed linebreaks in Chinese, also do not break close to ( )
+- a system of alt+key options to change settings quickly while in VR, mostly useful when showing VR to someone
+- fixed some bugs with portal maps
+- in the crossbow mode, do not auto-shoot and avoid hitting friends
+- fixed the "layered equidistant" projection in twisted H2xR
+
+2025-02-24 11:40 Update 13.0x
+New features:
+- in Experiments with Geometry, a new option to display the fundamental domain
+- shallow water now used as the first line of the beach
+- draw OoSpeed swirls smaller on turns without its effect (thanks to jlm)
+
+Bug fixes:
+- a possible crash with Orb of the Frog / Orb of Phasing
+- incorrect scrolling when clicking the mousewheel from outside the Poincare disk
+- 'joystick initialization' moved from 'old-style joystick configuration' to 'keyboards & joysticks'
+- loading a map from the drawing tool sometimes caused a crash
+
+2025-05-11 12:06 Update 13.0y
+Technical: (hopefully these do not break anything -- in case of any problems, please report and/or use the 'previous' branch on Steam)
+- simplified the implementation of floor shapes/walls etc
+- updated the Linux runtime on Steam
+
+New features:
+- nicer Goldberg-Coxeter tile shapes, also the style can be changed based on several possible rules
+- tetrahedral-octahedral honeycomb
+
+Bug fixes:
+- fix the generation of Crossroads official track
+- fixed the returning of tortoises while you have Flash/Storms
+- fix the 'x' key not working in keyboard/joystick control
+- disabled Red Raiders from shmup in Eclectic City
+- no longer possible to pick up items while dead in shmup
+- more stable "strict tree rules" (chosen options are automatically taken into account, do not crash, and do not slowdown due to too large generation range)
+- fix many other crashes
+- better shift+ctrl scaling in Euclidean std projection
+- fixed a bug with rendering 45-degree-rotated Klein bottles
+- fixed the single-land mode on fractals
+- use two-letter labels instead of excessive primes in the fundamental domain display
+- fixed a bug with Cellular Automata crashing after map reloaded
+
+2025-05-26 09:17 Update 13.0z:
+Mostly bugfixes:
+- fixed some rock level rendering issues
+- fixed the rendering of explosive barrels (and crates)
+- fixed the bug with too large floors in pure Euclidean square
+- inventory icons: fixed the wrong size used, fixed the crash bug when rendering the hypersian rug in some settings
+- shmup: particle effects in shmup now appear from the correct locaton, fuel particles in space rocks
+- Racing official track no longer turns the "god mode" off
+- fixed the Yendor/Caribbean markers in some projections
+
+2025-08-06 09:28 Update 13.1:
+- two new crossroads variants
+- translations updated
+- fixes in the peace/exploration menu
+- fixed the display of 'faces per vertex'
+- improvements to high contrast (by @jlm)
+- Caribbean spill in Voronoi should be fixed
+- launch the connection debugger on connection errors, also clearer error messages and horotiling.tes actually loads again
+- fixed the distance display in the expansion mode
+- fixed file dialog closing incorrectly
+- fixed Orb of Sword blocking strong wind
+https://zenorogue.blogspot.com/2025/08/hyperrogue-131.html
+
+2025-08-17 21:03 Update 13.1a:
+- improved selection of player shape: four new shapes, save/load customized characters, the character is centered correctly
+- fixed slaying + discord graphics
+- other active orbs now extend the duration of Orb of Recall
+- fixed CR5 and MCR not appearing in PTM
+- alt unlock condition for CR6
+- fixed the floor graphics in dual tilings
+- finding the music file in some installations should be fixed
+
+2025-08-17 23:00 Update 13.1b:
+- fixed Orb of Recall appearing incorrectly
+- finding geodesic and paper model data in some installations should be fixed
+
+2025-08-19 11:06 Update 13.1c:
+- fixed the player Ratlings not having tails
+- fixed the floor graphics in some tilings
+- fixed Clearing in bitruncated {8,3}
+- if a land is only accessible from ones that aren't in-game, it's not in-game
+- the simplified pattern cheat is now disabled when you stop cheating
+- more interesting dice in alt tilings
+- fixed generalized Great Walls (which tended to stop generating from some point)
+- fix unlock_all for land selection
+- Hive no longer requires horocycle support to be generated in other tilings
+- use 'small' generation for arbitrary and Archimedean spherical tilings
+- also fixed a crash in spherical arbitrary tilings
+- made ivy branches look better in alt tilings (they can now adjust to the distances between tiles)
+- fixed the default sizes of stuff in Archimedean pure tilings
+- added official races to the GitHub repo
+- the Orb of Safety in the Haunted Woods forbidden instead of dangerous (thanks to josephcsible)
+- the Hyperstone Quest cheat gives only the relevant treasures (thanks to josephcsible)
+- a shading cheat (thanks to josephcsible)
+- only messages about lands that are in-game are shown (thanks to josephcsible)
+
+2025-08-29 08:44 Update 13.1d:
+- fixed a potential crash when reseting OpenGL (might help people who could not run the game?)
+- fixed new humanoid player shapes not displaying the crossbow, and the missiles for new character shapes
+- fixed a bug when saving colortables, causing a crash when loading them (thanks to josephcsible)
+- drawing tool now actually does enable the cheat mode
+- fix pushing an Animated Die saying "You push the Unhappy Die." (thanks to josephcsible)
+- fixed some menus in VR, and the bugh with the walking mode hotkey; added 'build on walls' to the portal construction menu so it is easier to create portals in the air
+
+2025-09-09 20:35 Update 13.1e:
+- conformal egg model (like in the game Innards)
+- nicer help for number dialogs
+- fixed a bug with some projections not using 3D (when they were able to) or using 3D (when they were not able to)
+- azimuthal equidistant faster now (implemented on GPU)
+- fixed some bugs related to changing the 3D style
+- fixed the disconnect between scrolling speed and movement speed in Euclidean mode
+- fixed onscreen keyboard (in SDL2)
+- fixed some crashes thanks to josephcsible
+- for the expression parser, added some variables related to keyboard/mouse states
+- fixed drawing horocycles using parabolic movement
+- Warn before collecting potentially-dangerous orbs (thanks to josephcsible)
+- fix crash when the Elemental Planes is unlocked with 0 kills (thanks to josephcsible)
+- stop Outlaws from shooting themselves when Orb of Discord is active (thanks to josephcsible)
+- remove incorrect message about saving in Archimedean (thanks to josephcsible)
+- mark Minefield and Zebra as incompatible (thanks to josephcsible)
+- fixed missing sound files in the itchio versions
+- Android version updated
+
+2025-10-11 09:08 Update 13.1f:
+
+New features:
+
+- a new feature to create quotient orbifolds for tessellations loaded from tes files (or converted into that format) (experiment with geometry -> quotient)
+- in screenshots->centering, list all viewpoints
+
+Bug fixes:
+
+- fixed frogging grimoires
+- fixed the 3D models for spaceship, bunny, and player ratling
+- fixed Red Rock graphical bug
+- fixed the three-coloring of bitruncated {4,4}
+- bitruncated {4,4} and {4,6} are now known to be three-colored
+- fixed the bug with the bulls being too enraged about crossbows
+- fixed a rare bug with apeirogonal tes files falsely pretending to be football colorable
+- make the Orb of Earth/Earth Elemental not remove limestone walls in Irradiated Field and the Mercury River subland, and make OoEarth create a trail of mercury in the mercury river subland (thanks to ohlordhebacc)
+
+Shmup fixes:
+
+- the player can now be stunned now (using Orb of Stunning)
+- fixed the bug with Phasing deleting monsters
+- the killer is now stated correctly when killing yourself with Orb of Mind
+- Orb of Winter now correnctly collects ice-encased items
+- fixed the Camelot message (and cape reward) on exit
+- fixed some inconsistencies with Orb of Speed
+- fixed Orb of Energy not improving some orbs
+- Orb of Change should work now
+- orbs that did nothing now add extra lives (Woods, Plague, Chaos, Impact)
+
+Thanks to josephcsible:
+
+- add support for pinning glyphs to a consistent spot in the HUD
+- improve Minefield display when there are more than seven mines
+- make Orb of Magnetism and Curse of Repulsion leave saved tortoises alone
+- (in custom land lists) lower the land unlock requirements if they're mathematically impossibly high
+- stop WFC generation from spilling 1 tile into neighboring lands
+- never generate Cursed Canyon in CR6 if it isn't in-game
+- add a cheat to hold orb powers at their current level
+- add a setting for a gap between orbs and treasures
+- add a setting to disable the warning before killing a friendly monster
+- fix getting rid of Great Walls by killing Ghosts with OotStone
+- reset "last exploration" when starting a new run
+
+2025-11-11 19:10 Update 13.1g:
+
+Added some improvements for the SteamDeck:
+- the RETURN key now moves in the current direction
+- reorganized some setting menus so that there is not too many options on the screen
+- added a "dialog font scale" option to display larger menus
+- added an option to not automatically interpret joystick buttons as movement commands
+- the autojoy option is now off by default
+- fixed a crash in some situations
+- add an option to never/always display keyboard help in dialogs
+- better default settings on the SteamDeck
+
+Other changes:
+- new system for debug logs
+- in shmup, tortoise no longer die after 3 hits
+- fixed shHalfDisk and shDiskSegment shapes in spherical geometry
+- fix the "lastexplore" value getting set to the turn/knives thrown count instead of "shmup::curtime" when enabling the map editor in shmup, and when playing the fifteen+4 puzzle in shmup (thanks to ohlordhebacc)
+- make the "switch ghost timer" cheat display shmup::curtime instead of the turn/knives thrown count in shmup (thanks to ohlordhebacc)
+
+Thanks to josephcsible:
+- add a setting to preserve wparam and landparam when changing walls and lands with the map editor
+- fix edge cases in Hell/CR3 unlock
+- circle the item the Orb of Space is about to collect
+- fix freeze if Ancient Jewelry ends up on a tile with a large landparam
+- fix a crash
+
+2025-12-12 13:44 Update 13.1h:
+Further improvements to the SteamDeck:
+- use SteamDeck buttons instead of relying on the layout
+- fixed some problems with touchscreens (no double events, correct position)
+- an option to allow touch to get information / drag, other than move
+- an option to split 'quest screen' and 'main menu' into separate screens
+- splitting 'general graphics', 'colors & aura', and the help screen into more subscreens
+- fixed the problem where the screen pans down on SteamDeck (and other similar popular controlers)
+- "search for config" screen now has onscreen keyboard
+- in turn-based multiplayer, deadzones are now >0 by default (so it works on SteamDeck), and also an option to force 'accepting' directions
+- an option to display help about OSM orbs in touch interfaces
+
+Other improvements:
+- fixed the help button in the main menu
+- you can no longer push statues/wood-trees onto Grat Walls and other 'do not touch' walls
+- when you have Orb of Aether you can now enter BSOC/trees if they cannot be pushed behind
+- extensions to the formula parser (see the aperiodic-pentagons.tes sample)
+- disable message wrapping if not appropriate
+
+Thanks to josephcsible:
+- Rework removed tiles in Crystal World
+- Fix Free Fall crashing in horodisk land structure
+- Fix crash when Orbs of Choice, Space, and Safety interact
+- Slow down Orb of Winter effect when flashing effects are off
+
+2025-12-18 02:22 Update 13.1i:
+Further improvements to the SteamDeck:
+- should no longer confuse the controller axes and buttons
+- panning with the right joystick should work now
+- fixed some cases where keys where shown incorrectly
+- allowed more screenspace for dialogs since keys are never shown
+
+Other bugfixes:
+- fixed mousewheel in SDL2
+- fixed the generation range for Strong Wind and jump orb effects in alternate tilings
+
+2025-12-25 11:27 Update 13.1j:
+- fixed a crash when the '`' key was entered in some dialogs (which was a problem with older controller layouts which emitted this key)
+- fixed the screen size on SteamDeck
+- fixed the default control scheme when multiple controllers are connected
+
+2026-01-29 14:17 Update 13.1k:
+- local score screen: better default ordering of scores; scrolling left/right can now show extra columns; better buttons; fixed wrong scale of some elements
+- improved Deck UI information in help and tour
+- when you press e.g. 'b' to enter a text dialog, 'b' is not sent to this dialog
+- pressing left/right in the fullscreen resolution dialog now uses the list of actual supported resolutions; also hopefully fixed the resize screen loop
+
+2026-05-02 10:54 Update 13.1l:
+Game:
+- after 3 illegal moves, provide some suggestions regarding possible skip-moves and Orb uses
+- Ivy can now grow through single-tile wide chasms
+- fixed Vine Spirits sometimes considering some halfvine-related moves illegal
+- no more parrots placed near the player after using Orb of Safety
+- going back towards the Orb of Yendor now keeps the timer ghosts away
+- replaced "it is a shame to cheat" with a less judgemental "cheaters never win"
+
+Features:
+- compass-and-ruler functionality in the drawing tool (and other graphics tools)
+- more intuitive dragging on touchscreens (controlled by the `drag_sensitivity` setting)
+
+Bugfixes:
+- female Rogue can now change her dress
+- reset-special-modes now also resets texture mode and drawplayer off
+- fixed some shmup crashes
+- in "local scores", fixed dragging, and doubly-displayed time
+- disabling yendor/tactics now correctly sets the land to Ice
+- pressing yendor/tactic mode in the menu now, when active, automatically disables the mode
+- less CPU usage when out of focus
+
+Experiment with geometry:
+- in 'arbitrary file' and Archimedean tilings, the "strict tree maps" system is now used by default for hyperbolic tilings. This allows more complex land generation (horocycles) and
+  avoids precision errors. In case of any problems, the 'auto_rulegen' setting can be switched off. If switched off, the 'backed' system is reimplemented, and options to study the
+  precision issues are added to the 'experiment with geometry' menu.
+- fixed the distance computation in bitruncated {4,5}
+- field patterns (Blizzard, Wasteland) now work correctly in Goldberg/unrectified/untruncated geometries
+- fixed missing generation in some lands in some geometries
+- fixed Hunting Ground in quickly expanding geometries
+- fixed dice generated immobile in some geometries such as {5,4} bitruncated
+- fixed a crash when displaying a compass in binary tiling
+- disabled more patterned lands in 'strict tree maps'
+- provided an alternate unlock for Burial Grounds
+- zebra patterns: binary-tiling (parity), oox3 (random)
+
+Commandline fixes:
+- better at finding the HyperRogue files when launched from another directory
+- better `-help`, `-vizs` option for smooth visualization
+- in Linux, HyperRogue ini/log files are now created according to the XDG standard
+
+RogueViz:
+- fix a crash in Seuphorica
+- don't crash if file not found
+- many improvements to 'embeddings'
+- added triangle centers visualization
+- fixed some links in presentations

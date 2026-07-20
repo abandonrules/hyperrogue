@@ -10,7 +10,7 @@ namespace hr {
 
 EX bool quitsaves() { 
   if(casual) return false;
-  return (items[itOrbSafety] && CAP_SAVE && !arcm::in()); 
+  return (items[itOrbSafety] && CAP_SAVE);
   }
 
 EX bool needConfirmationEvenIfSaved() {
@@ -26,11 +26,26 @@ EX int getgametime() {
   return (int) (savetime + (timerstopped ? 0 : (time(NULL) - timerstart)));
   }
 
+EX ld getgametime_precise() {
+  return savetime + (timerstopped ? 0 : (ticks - tickstart) / 1000.);
+  }
+
 EX string getgametime_s(int timespent IS(getgametime())) {
   return hr::format("%d:%02d", timespent/60, timespent % 60);
   }
 
-EX bool display_yasc_codes;
+EX bool display_yasc_codes, display_semicasual;
+
+EX string formatted_yasc_code() {
+  if(yasc_code < 100000) return its(yasc_code);
+  int y = yasc_code;
+  string out;
+  while(y >= 100) {
+    out = "-" + its(y%100) + out;
+    y /= 100;
+    }
+  return its(y) + out;
+  }
 
 string timeline() {
   string s;
@@ -39,7 +54,11 @@ string timeline() {
   else {
     s = XLAT("%1 turns (%2)", its(turncount), getgametime_s());
     if(display_yasc_codes)
-      s+= XLAT(" YASC code: ") + its(yasc_code);
+      s += XLAT(" YASC code: ") + formatted_yasc_code();
+    }
+  if(casual && loadcount >= 0 && display_semicasual) {
+    ld val = exp(load_branching/scores::BRANCH_SCALE);
+    s += XLAT(" saves: %1 loads: %2 branching: %3", its(savecount), its(loadcount), val < 1e6 ? format("%.0f", val) : format("%.4g", val));
     }
   return s;
   }
@@ -53,7 +72,6 @@ struct hint {
   time_t last;
   function<bool()> usable;
   function<void()> display;
-  function<void()> action;  
   };
 #endif
 
@@ -68,13 +86,13 @@ EX hint hints[] = {
        dialog::addHelp(XLAT(
         "If you collect too many treasures in a given land, it will become "
         "extremely dangerous. Try other lands once you have enough!"));
-      },
-    noaction},
+      }
+    },
 
   {
     0,
     []() { 
-      return !ISMOBILE;
+      return !dialog::never_keys();
       },    
     []() { 
        dialog::addHelp(XLAT(
@@ -83,8 +101,8 @@ EX hint hints[] = {
        dialog::addHelp(XLAT(
          "(You can also use right Shift)\n\n"));
 #endif
-      },
-    noaction},
+      }
+    },
 
   {
     0,
@@ -95,14 +113,15 @@ EX hint hints[] = {
         ));
       dialog::addBreak(50);
       dialog::addItem(XLAT("guided tour"), 'z');
-      },
-    []() {
+      dialog::add_action([] {
 #if CAP_TOUR    
-      tour::start();
+        tour::start();
 #else
-      addMessage("Not in this version");
+        addMessage("Not in this version");
 #endif
-      }},
+        });
+      }
+    },
 
   {
     0,
@@ -112,36 +131,32 @@ EX hint hints[] = {
         "Collecting 25 treasures in a given land may be dangerous, "
         "but allows magical Orbs of this land to appear in other places!"
         ));
-      },
-    noaction},
+      }
+    },
 
   {
     0,
-    []() { return !canmove; },
+    []() { return !canmove && dialog::display_keys != 3; },
     []() { 
       dialog::addInfo(XLAT(
         "Press ESC to view this screen during the game."
         ));
-      },
-    noaction
+      }
     },
   {
     0,
     []() { return in_full_game(); },
     []() { 
-      dialog::addInfo(
-#if ISMOBILE
+      dialog::addInfo(dialog::never_keys() ?
         XLAT("The 'world overview' shows all the lands in HyperRogue.")
-#else
+      :
         XLAT("Press 'o' to see all the lands in HyperRogue.")
-#endif
         );
       dialog::addBreak(50);
       dialog::addItem(XLAT("world overview") + " ", 'z');
-      },
-    []() {
-      pushScreen(showOverview);
-      }},
+      dialog::add_action_push(showOverview);
+      }
+    },
   {
     0,
     []() { return !canmove; },
@@ -153,11 +168,9 @@ EX hint hints[] = {
         ));
       dialog::addBreak(50);
       dialog::addItem(XLAT("special game modes"), 'z');
+      dialog::add_action_push(showChangeMode);
       },
-    []() {
-      pushScreen(showChangeMode);
-      }},
-
+    },
   {
     0,
     []() { return true; },
@@ -167,10 +180,9 @@ EX hint hints[] = {
         ));
       dialog::addBreak(50);
       dialog::addItem(XLAT("special display modes"), 'z');
-      },
-    []() {
-      pushScreen(models::model_menu);
-      }},
+      dialog::add_action_push(models::model_menu);
+      }
+    },
 
   {
     0,
@@ -183,11 +195,11 @@ EX hint hints[] = {
         );
       dialog::addBreak(50);
       dialog::addItem(XLAT("Orb Strategy mode"), 'z');
-      },
-    []() {
+      dialog::add_action([] {
 #if CAP_INV
-      restart_game(rg::inv);
+        restart_game(rg::inv);
 #endif
+        });
       }
     },
   {
@@ -200,22 +212,22 @@ EX hint hints[] = {
         ));
       dialog::addBreak(50);
       dialog::addItem(XLAT("hypersian rug mode"), 'z');
-      },
-    [] () {
+      dialog::add_action([] {
 #if CAP_RUG
-      popScreen();
-      int wm, mm;
-      rug::init();
-      wm = vid.wallmode;
-      mm = vid.monmode;
-      vid.wallmode = 3;
-      vid.monmode = 2;
-      cancel = [wm, mm] () { 
-        rug::close();
-        vid.wallmode = wm;
-        vid.monmode = mm;
-        };
+        popScreen();
+        int wm, mm;
+        rug::init();
+        wm = vid.wallmode;
+        mm = vid.monmode;
+        vid.wallmode = 3;
+        vid.monmode = 2;
+        cancel = [wm, mm] () {
+          rug::close();
+          vid.wallmode = wm;
+          vid.monmode = mm;
+          };
 #endif
+        });
       }
     },
 
@@ -229,22 +241,22 @@ EX hint hints[] = {
         ));
       dialog::addBreak(50);
       dialog::addItem(XLAT("Show me!"), 'z');
+      dialog::add_action([] {
+        popScreen();
+        auto m = pmodel;
+        pmodel = mdBand;
+        auto r = models::rotation;
+        bool h = history::includeHistory;
+        models::rotation = Id;
+        history::includeHistory = true;
+        history::create_playerpath();
+        cancel = [m,r,h] () {
+          history::clear(); pmodel = m;
+          models::rotation = r;
+          history::includeHistory = h;
+          fullcenter(); };
+        });
       },
-    [] () {
-      popScreen();
-      auto m = pmodel;
-      pmodel = mdBand;
-      auto r = models::rotation;
-      bool h = history::includeHistory;
-      models::rotation = Id;
-      history::includeHistory = true;
-      history::create_playerpath();
-      cancel = [m,r,h] () { 
-        history::clear(); pmodel = m; 
-        models::rotation = r;
-        history::includeHistory = h;
-        fullcenter(); };
-      }
     },
 
   {
@@ -261,11 +273,11 @@ EX hint hints[] = {
         ));
       dialog::addBreak(50);
       dialog::addItem(XLAT("expansion"), 'z');
-      },
-    [] () {
-      viewdists = !viewdists;
-      popScreen();
-      cancel = [] () { viewdists = false; };
+      dialog::add_action([] {
+        viewdists = !viewdists;
+        popScreen();
+        cancel = [] () { viewdists = false; };
+        });
       }
     },
 
@@ -274,26 +286,26 @@ EX hint hints[] = {
     []() { return !canmove && showHalloween(); },
     []() {
       dialog::addItem(XLAT("Halloween mini-game"), 'z');
-      },
-    [] () {
-      if(!sphere) {
-        resetModes();
-        stop_game();
-        specialland = laHalloween;
-        set_geometry(gSphere);
-        start_game();
-        pconf.alpha = 999;
-        pconf.scale = 998;
-        }
-      else {
-        resetModes();
-        pconf.alpha = 1;
-        pconf.scale = 1;
-        }
+      dialog::add_action([] {
+        if(!sphere) {
+          resetModes();
+          stop_game();
+          specialland = laHalloween;
+          set_geometry(gSphere);
+          start_game();
+          pconf.alpha = 999;
+          pconf.scale = 998;
+          }
+        else {
+          resetModes();
+          pconf.alpha = 1;
+          pconf.scale = 1;
+          }
+        });
       }
     },
 
-  {-1, []() { return false; }, noaction, noaction}
+  {-1, []() { return false; }, noaction}
   }; 
 
 EX int hinttoshow;
@@ -311,17 +323,24 @@ eLand nextHyperstone() {
   return laCrossroads;
   }
 
+EX bool separate_status = false;
+EX bool showing_status = true;
+
 EX void showGameMenu() {
 
   cmode = sm::DOTOUR | sm::MISSION | sm::CENTER | sm::MAYDARK | sm::SIDE;
   gamescreen(); drawStats();
   getcstat = SDLK_ESCAPE;
 
-  dialog::init(
+  bool skip_status = separate_status && !showing_status;
+
+  if(skip_status) dialog::init(XLAT("main menu"));
+
+  else dialog::init(
 #if CAP_TOUR
     tour::on ? (canmove ? XLAT("guided tour") : XLAT("GAME OVER")) :
 #endif
-    (cheater && !autocheat)? XLAT("It is a shame to cheat!") : 
+    (cheater && !autocheat) ? XLAT("cheats active") :
     racing::on ? "racing mode" :
     (canmove && princess::challenge) ? XLAT("%1 Challenge", moPrincess) :
     canmove ? XLAT("Quest status") : 
@@ -329,23 +348,28 @@ EX void showGameMenu() {
     0xC00000, 200, 100
     );
 
+  if(!canmove && yasc_message != "" && !skip_status) dialog::addInfo(yasc_message);
+
   #if CAP_COMPLEX2
   bool sweeper = mine::in_minesweeper();
   #else
   const bool sweeper = false;
   #endif
 
-  if(!peace::on && !racing::on && !sweeper && !in_lovasz())
+  if(!peace::on && !racing::on && !sweeper && !in_lovasz() && !skip_status)
     dialog::addInfo(XLAT("Your score: %1", its(gold())));
-  if(!peace::on && !racing::on && !sweeper && !in_lovasz())
+  if(!peace::on && !racing::on && !sweeper && !in_lovasz() && !skip_status)
     dialog::addInfo(XLAT("Enemies killed: %1", its(tkills())));
+
+  auto congrats = cheater ? XLAT("cheaters never win") : XLAT("CONGRATULATIONS!");
 
 #if CAP_TOUR
   if(tour::on) ; else 
 #endif
+  if(skip_status) ; else
   if(items[itOrbYendor]) {
     dialog::addInfo(XLAT("Orbs of Yendor found: %1", its(items[itOrbYendor])), iinf[itOrbYendor].color);
-    dialog::addInfo(XLAT("CONGRATULATIONS!"), iinf[itOrbYendor].color);
+    dialog::addInfo(congrats, iinf[itOrbYendor].color);
     }
   #if CAP_COMPLEX2
   else if(mine::in_minesweeper()) {
@@ -355,7 +379,7 @@ EX void showGameMenu() {
       dialog::addInfo(XLAT("Cells to uncover: %1", its(to_uncover)));
       }
     else {
-      dialog::addInfo(XLAT("CONGRATULATIONS!"), iinf[itOrbYendor].color);
+      dialog::addInfo(congrats, iinf[itOrbYendor].color);
       dialog::addInfo(XLAT("You won in %1", getgametime_s(mine::victory_time)));      
       }
     }
@@ -368,9 +392,8 @@ EX void showGameMenu() {
       all++;
       }
     dialog::addInfo(XLAT("Dropped floors: %1/%2", its(score), its(all)));
-    if(score == all) dialog::addInfo(XLAT("CONGRATULATIONS!"), iinf[itOrbYendor].color);
-    if(score == all && geometry == gKleinQuartic && variation == eVariation::untruncated && gp::param == gp::loc(1,1) && !disksize)
-      achievement_gain_once("LOVASZ", rg::special_geometry);      
+    if(score == all) dialog::addInfo(congrats, iinf[itOrbYendor].color);
+    if(score == all) achievement_gain_once("LOVASZ", specgeom_lovasz());
     }
   else {  
     if(0)
@@ -407,18 +430,19 @@ EX void showGameMenu() {
   if(canmove && !timerstart)
     timerstart = time(NULL);
   
-  if(princess::challenge) ;
+  if(skip_status) ;
+  else if(princess::challenge) ;
 #if CAP_TOUR
   else if(tour::on) ;
 #endif
   else if(peace::on) ;
   else if(racing::on) ;
   else if(!in_full_game()) ;
-  else if(tkills() < R100)
+  else if(tkills() < R100 && isLandIngame(laGraveyard))
     dialog::addInfo(XLAT("Defeat %1 enemies to access the Graveyard", its(R100)));
-  else if(kills[moVizier] == 0 && (items[itFernFlower] < U5 || items[itGold] < U5))
+  else if(kills[moVizier] == 0 && (items[itFernFlower] < U5 || items[itGold] < U5) && isLandIngame(laEmerald))
     dialog::addInfo(XLAT("Kill a Vizier in the Palace to access Emerald Mine"));
-  else if(items[itEmerald] < U5)
+  else if(items[itEmerald] < U5 && isLandIngame(laCamelot))
     dialog::addInfo(XLAT("Collect 5 Emeralds to access Camelot"));
   else if(landUnlocked(laHell) && ls::any_order()) {
     eLand l = nextHyperstone();
@@ -431,17 +455,17 @@ EX void showGameMenu() {
       dialog::addInfo(XLAT("Hyperstone Quest completed!"), iinf[itHyperstone].color);
     }
   else dialog::addInfo(XLAT("Some lands unlock at specific treasures or kills"));
-  if(cheater && !autocheat) {
+  if(cheater && !autocheat && !skip_status) {
     dialog::addInfo(XLAT("you have cheated %1 times", its(cheater)), 0xFF2020);
     }
-  else if(!racing::on) {
+  if(!racing::on && !skip_status) {
     dialog::addInfo(timeline(), dialog::dialogcolor);
     }
   
-  dialog::addBreak(100);
+  if(!skip_status) dialog::addBreak(100);
 
 #if CAP_TOUR  
-  if(!tour::on) {
+  if(!tour::on && !skip_status) {
     hints[hinttoshow].display();
     dialog::addBreak(100);
     }
@@ -452,6 +476,19 @@ EX void showGameMenu() {
 #if CAP_TOUR
   intour = tour::on;
 #endif
+
+  if(separate_status && showing_status) {
+    dialog::addItem(XLAT("menu"), 'v');
+    dialog::add_action([] { showing_status = false; });
+    dialog::addBack();
+    dialog::display();
+    return;
+    }
+
+  if(skip_status) {
+    dialog::addItem(XLAT("show the status screen"), 'v');
+    dialog::add_action([] { showing_status = !showing_status; });
+    }
 
   if(intour) {
 #if CAP_TOUR
@@ -527,11 +564,15 @@ EX void showGameMenu() {
   dialog::add_action_push(showSettings);
   dialog::addItem(XLAT("creative mode"), 'c');
   dialog::add_action_push(showCreative);
-  dialog::addItem(XLAT("special modes"), 'm');
-  dialog::add_action_push(showChangeMode);
+  if(!intour) {
+    dialog::addItem(XLAT("special modes"), 'm');
+    dialog::add_action_push(showChangeMode);
+    }
 #if CAP_SAVE
-  dialog::addItem(XLAT("local highscores"), 't');
-  dialog::add_action([] { scores::load(); });
+  if(!intour) {
+    dialog::addItem(XLAT("local highscores"), 't');
+    dialog::add_action([] { scores::load(); });
+    }
 #endif
   #if ISMOBILE
   dialog::addItem(XLAT("visit the website"), 'q');
@@ -542,25 +583,29 @@ EX void showGameMenu() {
   #endif
 #if ISMOBILE
 #if CAP_ACHIEVE
-  dialog::addItem(XLAT("leaderboards/achievements"), '3'); 
-  dialog::add_action([] {
-    achievement_final(false);
-    pushScreen(leader::showMenu);
-    });
+  if(!intour) {
+    dialog::addItem(XLAT("leaderboards/achievements"), '3');
+    dialog::add_action([] {
+      achievement_final(false);
+      pushScreen(leader::showMenu);
+      });
+    }
 #endif
 #endif
   dialog::addHelp();
-  dialog::add_action([] { buildHelpText(); gotoHelp(help); });
-  dialog::addItem(XLAT("restart"), SDLK_F5);
-  dialog::addItem(inSpecialMode() ? XLAT("reset special modes") : XLAT("back to the start menu"), 'R');
-  dialog::add_action([] {
-    dialog::do_if_confirmed([] {
-      #if CAP_STARTANIM
-      startanims::pick();
-      #endif
-      popScreenAll(), pushScreen(showStartMenu);
+  dialog::add_action([] { gotoHelp("@"); });
+  if(!intour) {
+    dialog::addItem(XLAT("restart"), SDLK_F5);
+    dialog::addItem(inSpecialMode() ? XLAT("reset special modes") : XLAT("back to the start menu"), 'R');
+    dialog::add_action([] {
+      dialog::do_if_confirmed([] {
+        #if CAP_STARTANIM
+        startanims::pick();
+        #endif
+        popScreenAll(), pushScreen(showStartMenu);
+        });
       });
-    });
+    }
 #if !ISMOBILE
   dialog::addItem(quitsaves() ? XLAT("save") : XLAT("quit"), SDLK_F10);
 #endif
@@ -592,7 +637,7 @@ EX void handleKeyQuit(int sym, int uni) {
     sym = 0;
 #endif
 
-  if(sym == SDLK_RETURN || sym == SDLK_KP_ENTER || sym == SDLK_F10) {
+  if(sym == SDLK_F10) {
     if(needConfirmation()) pushScreen([] { 
       dialog::confirm_dialog(
         XLAT("This will exit HyperRogue without saving your current game. Are you sure?") + "\n\n" +
@@ -608,13 +653,13 @@ EX void handleKeyQuit(int sym, int uni) {
     msgs.clear();
     });
   else if(uni == 'l') popScreenAll(), pushScreen(showMessageLog), messagelogpos = isize(gamelog);
-  else if(uni == 'z') hints[hinttoshow].action();
   #if CAP_SAVE
   else if(sym == SDLK_F9) {
     if(casual && savecount) {
       stop_game();
       load_last_save();
       start_game();
+      restore_all_golems();
       }
     else
       gotoHelp(safety_help());
@@ -633,12 +678,17 @@ EX void handleKeyQuit(int sym, int uni) {
     scores::load();
     }
   #endif
+
+#if CAP_TOUR
+  else if(tour::on && tour::handleKeyTour(sym, uni)) ;
+#endif
   
   else if(doexiton(sym, uni) && !didsomething) {
     popScreen();
     msgs.clear();
     if(!canmove) {
-      addMessage(XLAT("GAME OVER"));
+      if(yasc_message != "") addMessage(XLAT("GAME OVER") + ": " + yasc_message);
+      else addMessage(XLAT("GAME OVER"));
       addMessage(timeline());
       }
     }
@@ -648,7 +698,7 @@ EX int counthints() {
   for(int h=0;; h++) if(hints[h].last < 0) return h;
   }
 
-EX void showMissionScreen() {
+EX void showMissionScreen(bool start_showing_status) {
   cancel(); cancel = noaction;
   popScreenAll();
   achievement_final(false);
@@ -658,8 +708,10 @@ EX void showMissionScreen() {
     pushScreen(daily::showMenu);
     #endif
     }
-  else
+  else {
+    showing_status = start_showing_status;
     pushScreen(showGameMenu);
+    }
 
 #if CAP_TOUR
   if(!tour::on)

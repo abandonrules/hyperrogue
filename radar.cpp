@@ -2,7 +2,7 @@
 namespace hr {
 
 #if MAXMDIM >= 4
-pair<bool, hyperpoint> makeradar(shiftpoint h) {
+pair<bool, hyperpoint> makeradar(shiftpoint h, bool distant) {
 
   hyperpoint h1;
 
@@ -23,8 +23,13 @@ pair<bool, hyperpoint> makeradar(shiftpoint h) {
   
   if(WDIM == 3) {
     ld d = hdist0(h);
-    if(d >= vid.radarrange) return {false, h1};
-    if(d) h1 = h1 * (d / vid.radarrange / hypot_d(3, h1));
+    if(distant) {
+      h1 = h1 / hypot_d(3, h1);
+      }
+    else {
+      if(d >= vid.radarrange) return {false, h1};
+      if(d) h1 = h1 * (d / vid.radarrange / hypot_d(3, h1));
+      }
     }
   else {
     h1 = cgi.emb->actual_to_base(h1);
@@ -45,16 +50,16 @@ pair<bool, hyperpoint> makeradar(shiftpoint h) {
   return {true, h1};
   }
 
-EX void addradar(const shiftmatrix& V, char ch, color_t col, color_t outline) {
+EX void addradar(const shiftmatrix& V, char ch, color_t col, color_t outline, bool distant IS(false)) {
   shiftpoint h = V * tile_center();
-  auto hp = makeradar(h);
+  auto hp = makeradar(h, distant);
   if(hp.first)
     current_display->radarpoints.emplace_back(radarpoint{hp.second, ch, col, outline});
   }
 
 EX void addradar(const shiftpoint h1, const shiftpoint h2, color_t col) {
-  auto hp1 = makeradar(h1);
-  auto hp2 = makeradar(h2);
+  auto hp1 = makeradar(h1, false);
+  auto hp2 = makeradar(h2, false);
   if(hp1.first && hp2.first)
     current_display->radarlines.emplace_back(radarline{hp1.second, hp2.second, col});
   }
@@ -62,12 +67,8 @@ EX void addradar(const shiftpoint h1, const shiftpoint h2, color_t col) {
 void celldrawer::drawcell_in_radar() {
   #if CAP_SHMUP
   if(shmup::on) {
-    pair<shmup::mit, shmup::mit> p = 
-      shmup::monstersAt.equal_range(c);
-    for(shmup::mit it = p.first; it != p.second; it++) {
-      shmup::monster* m = it->second;
+    FOR_LIST(it, c->contents) if(shmup::monster *m = it->as_monster())
       addradar(V*m->at, minf[m->type].glyph, minf[m->type].color, 0xFF0000FF);
-      }
     }
   #endif
   if(c->monst) 
@@ -107,46 +108,46 @@ EX void draw_radar(bool cornermode) {
   
   ld cx = dual::state ? (dual::currently_loaded ? vid.xres/2+rad+2 : vid.xres/2-rad-2) :
           subscreens::in ? cd->xtop + cd->xsize - rad - 2 :
-          cornermode ? rad+2 : vid.xres-rad-2;
+          cornermode ? rad+2+vid.fsize : vid.xres-rad-2-vid.fsize;
   ld cy = subscreens::in ? cd->ytop + cd->ysize - rad - 2 - vid.fsize :
           vid.yres-rad-2 - vid.fsize;
   
-  auto sId = shiftless(Id);
+  auto ASP = atscreenpos(0, 0);
 
-  for(int i=0; i<360; i++)
-    curvepoint(atscreenpos(cx-cos(i * degree)*rad, cy-sin(i*degree)*rad, 1) * C0);
-  queuecurve(sId, 0xFFFFFFFF, 0x000000FF, PPR::ZERO);      
+  for(int i=0; i<=360; i++)
+    curvepoint(eupoint(cx-cos(i * degree)*rad, cy-sin(i*degree)*rad));
+  queuecurve(ASP, 0xFFFFFFFF, 0x000000FF, PPR::ZERO);      
 
   ld alpha = 15._deg;
   ld co = cos(alpha);
   ld si = sin(alpha);
   
   if(sph && !d3) {
-    for(int i=0; i<360; i++)
-      curvepoint(atscreenpos(cx-cos(i * degree)*rad, cy-sin(i*degree)*rad*si, 1) * C0);
-    queuecurve(sId, 0, 0x200000FF, PPR::ZERO);
+    for(int i=0; i<=360; i++)
+      curvepoint(eupoint(cx-cos(i * degree)*rad, cy-sin(i*degree)*rad*si));
+    queuecurve(ASP, 0, 0x200000FF, PPR::ZERO);
     }
 
   if(d3) {
-    for(int i=0; i<360; i++)
-      curvepoint(atscreenpos(cx-cos(i * degree)*rad, cy-sin(i*degree)*rad*si, 1) * C0);
-    queuecurve(sId, 0xFF0000FF, 0x200000FF, PPR::ZERO);
+    for(int i=0; i<=360; i++)
+      curvepoint(eupoint(cx-cos(i * degree)*rad, cy-sin(i*degree)*rad*si));
+    queuecurve(ASP, 0xFF0000FF, 0x200000FF, PPR::ZERO);
   
-    curvepoint(atscreenpos(cx-sin(vid.fov*degree/2)*rad, cy-sin(vid.fov*degree/2)*rad*si, 1) * C0);
-    curvepoint(atscreenpos(cx, cy, 1) * C0);
-    curvepoint(atscreenpos(cx+sin(vid.fov*degree/2)*rad, cy-sin(vid.fov*degree/2)*rad*si, 1) * C0);
-    queuecurve(sId, 0xFF8000FF, 0, PPR::ZERO);
+    curvepoint(eupoint(cx-sin(vid.fov*degree/2)*rad, cy-sin(vid.fov*degree/2)*rad*si));
+    curvepoint(eupoint(cx, cy));
+    curvepoint(eupoint(cx+sin(vid.fov*degree/2)*rad, cy-sin(vid.fov*degree/2)*rad*si));
+    queuecurve(ASP, 0xFF8000FF, 0, PPR::ZERO);
     }
   
   if(d3) for(auto& r: cd->radarpoints) {
-    queueline(sId*atscreenpos(cx+rad * r.h[0], cy - rad * r.h[2] * si + rad * r.h[1] * co, 0)*C0, sId*atscreenpos(cx+rad*r.h[0], cy - rad*r.h[2] * si, 0)*C0, r.line, -1);
+    queueline(ASP*eupoint(cx+rad * r.h[0], cy - rad * r.h[2] * si + rad * r.h[1] * co), ASP*eupoint(cx+rad*r.h[0], cy - rad*r.h[2] * si), r.line, -1);
     }
   
   if(scompass) {
     auto compassdir = [&] (char dirname, hyperpoint h) {
       h = NLP * h * .8;
-      queueline(sId*atscreenpos(cx+rad * h[0], cy - rad * h[2] * si + rad * h[1] * co, 0)*C0, sId*atscreenpos(cx+rad*h[0], cy - rad*h[2] * si, 0)*C0, 0xA0401040, -1);
-      displaychr(int(cx+rad * h[0]), int(cy - rad * h[2] * si + rad * h[1] * co), 0, 8, dirname, 0xA04010);
+      queueline(ASP*eupoint(cx+rad * h[0], cy - rad * h[2] * si + rad * h[1] * co), ASP*eupoint(cx+rad*h[0], cy - rad*h[2] * si), 0xA0401040, -1);
+      displaychr(int(cx+rad * h[0]), int(cy - rad * h[2] * si + rad * h[1] * co), 0, 8 * mapfontscale / 100, dirname, 0xA04010);
       };
     compassdir('E', point3(+1, 0, 0));
     compassdir('N', point3(0, +1, 0));
@@ -171,19 +172,17 @@ EX void draw_radar(bool cornermode) {
   for(auto& r: cd->radarlines) {
     hyperpoint h1 = locate(r.h1);
     hyperpoint h2 = locate(r.h2);
-    h1 = tC0(atscreenpos(h1[0], h1[1], 1));
-    h2 = tC0(atscreenpos(h2[0], h2[1], 1));
-    queueline(sId*h1, sId*h2, r.line, -1);
+    queueline(ASP*eupoint(h1[0], h1[1]), ASP*eupoint(h2[0], h2[1]), r.line, -1);
     }
 
   quickqueue();
   glflush();
   
   for(auto& r: cd->radarpoints) {
-    if(d3) displaychr(int(cx + rad * r.h[0]), int(cy - rad * r.h[2] * si + rad * r.h[1] * co), 0, 8, r.glyph, r.color);
+    if(d3) displaychr(int(cx + rad * r.h[0]), int(cy - rad * r.h[2] * si + rad * r.h[1] * co), 0, 8 * mapfontscale / 100, r.glyph, r.color);
     else {
       hyperpoint h = locate(r.h);
-      displaychr(int(h[0]), int(h[1]), 0, int(h[2]) / divby, r.glyph, r.color);
+      displaychr(int(h[0]), int(h[1]), 0, int(h[2]) * mapfontscale / divby / 100, r.glyph, r.color);
       }
     }
 #endif

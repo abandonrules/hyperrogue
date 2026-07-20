@@ -13,7 +13,7 @@ EX const char* COLORBAR = "###";
 EX namespace dialog {
 
 #if HDR
-  #define IFM(x) (mousing?"":x)
+  #define IFM(x) (dialog::actual_display_keys()?(x):"")
 
   static constexpr int DONT_SHOW = 16;
 
@@ -23,7 +23,7 @@ EX namespace dialog {
     tDialogItem type;
     string body;
     string value;
-    int key;
+    key_type key;
     color_t color, colorv, colork, colors, colorc;
     int scale;
     double param;
@@ -35,27 +35,28 @@ EX namespace dialog {
     };
   
   struct scaler {
-    ld (*direct) (ld);
-    ld (*inverse) (ld);
-    bool positive;
+    function<ld(ld)> direct, inverse;
+    bool positive, int_slider, zerify;
     };
 
   static inline ld identity_f(ld x) { return x; }
   
-  const static scaler identity = {identity_f, identity_f, false};
-  const static scaler logarithmic = {log, exp, true};
-  const static scaler asinhic = {asinh, sinh, false};
-  const static scaler asinhic100 = {[] (ld x) { return asinh(x*100); }, [] (ld x) { return sinh(x)/100; }, false};
+  const static scaler identity = {identity_f, identity_f, false, true, true};
+  const static scaler logarithmic = { (ld (*) (ld)) log, (ld (*) (ld)) exp, true, false, false};
+  const static scaler asinhic = { (ld (*) (ld)) asinh, (ld (*) (ld)) sinh, false, false, false};
+  const static scaler asinhic100 = {[] (ld x) { return asinh(x*100); }, [] (ld x) { return sinh(x)/100; }, false, false, false};
+  const static scaler asinhic_big = {[] (ld x) { return asinh(x*1e15); }, [] (ld x) { return sinh(x)/1e15; }, false, false, false};
  
   /** extendable dialog */
   struct extdialog : funbase {
     string title, help;
-    int dialogflags;
+    flagtype dialogflags;
     reaction_t reaction;
     reaction_t reaction_final;
     reaction_t extra_options;
     virtual void draw() = 0;
-    void operator() () { draw(); }
+    bool closed;
+    void operator() () { if(closed) popfinal(); else draw(); }
     virtual ~extdialog() {};
     extdialog();
     /** Pop screen, then call the final reaction. A bit more complex because it eeds to backup reaction_final due to popScreen */
@@ -70,11 +71,19 @@ EX namespace dialog {
     scaler sc;
     int *intval; ld intbuf;
     bool animatable;
+    bool *boolval;
     void draw() override;
     void apply_edit();
     void apply_slider();
     string disp(ld x);
     void reset_str() { s = disp(*editwhat); }
+    };
+
+  /** bool dialog */
+  struct bool_dialog : extdialog {
+    bool *editwhat, dft;
+    reaction_t switcher;
+    void draw() override;
     };
 #endif
 
@@ -93,6 +102,30 @@ EX namespace dialog {
   EX void scaleLog() { get_ne().sc = logarithmic; }
   EX void scaleSinh() { get_ne().sc = asinhic; }
   EX void scaleSinh100() { get_ne().sc = asinhic100; }
+  EX void scaleSinh_big() { get_ne().sc = asinhic_big; }
+
+  EX void scale_given(vector<int> v) {
+    get_ne().vmin = v[0];
+    get_ne().vmax = v.back();
+    get_ne().sc = identity;
+    get_ne().sc.direct = [v] (ld val) -> ld {
+      ld last = 0; int id = 0;
+      for(auto x: v) {
+        if(val == x) return id;
+        if(val < x) return id - 0.75 + 0.5 * ilerp(last, x, val);
+        last = x; id++;
+        }
+      return (val / last) + id - 2;
+      };
+    get_ne().sc.inverse = [v] (ld val) -> ld {
+      if(val > isize(v) - 1) return (val - isize(v) + 2) * v.back();
+      if(val < 0) return v[0];
+      ld f = val - floor(val);
+      if(f < .25) return v[floor(val)];
+      if(f > .75) return v[ceil(val)];
+      return lerp(v[floor(val)], v[ceil(val)], (f - 0.25) * 2);
+      };
+    }
 
   EX color_t dialogcolor = 0xC0C0C0;
   EX color_t dialogcolor_clicked = 0xFF8000;
@@ -172,13 +205,13 @@ EX namespace dialog {
 
   EX item& titleItem() { return items[0]; }
   
-  EX map<int, reaction_t> key_actions;
+  EX map<key_type, reaction_t> key_actions;
   
-  EX void add_key_action(int key, const reaction_t& action) {
+  EX void add_key_action(key_type key, const reaction_t& action) {
     key_actions[key] = action;
     }
   
-  EX void add_key_action_adjust(int& key, const reaction_t& action) {
+  EX void add_key_action_adjust(key_type& key, const reaction_t& action) {
     while(key_actions.count(key)) key++;
     add_key_action(key, action);
     }
@@ -198,7 +231,7 @@ EX namespace dialog {
   EX void handler(int sym, int uni) {
     if(cmode & sm::PANNING) handlePanning(sym, uni);
     dialog::handleNavigation(sym, uni);
-    if(doexiton(sym, uni)) popScreen();
+    if(doexiton(sym, uni) && !(cmode & sm::NO_EXIT)) popScreen();
     }
 
   EX int list_size_min, list_size_max, list_fake_key;
@@ -212,15 +245,19 @@ EX namespace dialog {
     keyhandler = dialog::handler;
     }
   
-  EX string keyname(int k) {
+  EX string keyname(key_type k) {
     if(k == 0) return "";
     if(k == SDLK_ESCAPE) return "Esc";
-    if(k == SDLK_F5) return "F5";
-    if(k == SDLK_F10) return "F10";
-    if(k == SDLK_F9) return "F9";
     if(k == SDLK_F1) return "F1";
-    if(k == SDLK_F4) return "F4";
+    if(k == SDLK_F2) return "F2";
     if(k == SDLK_F3) return "F3";
+    if(k == SDLK_F4) return "F4";
+    if(k == SDLK_F5) return "F5";
+    if(k == SDLK_F6) return "F6";
+    if(k == SDLK_F7) return "F7";
+    if(k == SDLK_F8) return "F8";
+    if(k == SDLK_F9) return "F9";
+    if(k == SDLK_F10) return "F10";
     if(k >= 10000 && k < 10500) return "";
     if(k == SDLK_HOME) return "Home";
     if(k == SDLK_BACKSPACE) return "Backspace";
@@ -229,6 +266,14 @@ EX namespace dialog {
     if(k >= 1 && k <= 26) { string s = "Ctrl+"; s += (k+64); return s; }
     if(k < 128) { string s; s += k; return s; }
     if(k == 508) return "Alt+8";
+    if(is_joy_index(k, 0)) return "Ⓐ";
+    if(is_joy_index(k, 1)) return "Ⓑ";
+    if(is_joy_index(k, 2)) return "Ⓧ";
+    if(is_joy_index(k, 3)) return "Ⓨ";
+    if(is_joy_index(k, 0)) return "Ⓐ";
+    if(is_joy_index(k, 9)) return "Ⓛ";
+    if(is_joy_index(k, 10)) return "Ⓡ";
+
     return "?";
     }
 
@@ -242,22 +287,23 @@ EX namespace dialog {
     scale = 100;
     }
 
-  EX void addSlider(double d1, double d2, double d3, int key) {
+  EX void addSlider(double d1, double d2, double d3, key_type key) {
     item it(diSlider);
     it.key = key;
     it.param = (d2-d1) / (d3-d1);
     items.push_back(it);
     }
   
-  EX void addIntSlider(int d1, int d2, int d3, int key) {
+  EX void addIntSlider(int d1, ld d2, int d3, key_type key) {
     item it(diIntSlider);
     it.key = key;
     it.p1 = (d2-d1);
+    it.param = (d2-d1) / (d3-d1);
     it.p2 = (d3-d1);
     items.push_back(it);
     }
   
-  EX void addSelItem(string body, string value, int key) {
+  EX void addSelItem(string body, string value, key_type key) {
     item it(diItem);
     it.body = body;
     it.value = value;
@@ -267,7 +313,7 @@ EX namespace dialog {
     items.push_back(it);
     }
 
-  EX void addBoolItem(string body, bool value, int key) {
+  EX void addBoolItem(string body, bool value, key_type key) {
     addSelItem(body, ONOFF(value), key);
     }
   
@@ -291,7 +337,7 @@ EX namespace dialog {
     items.push_back(it);
     }
 
-  EX void addColorItem(string body, int value, int key) {
+  EX void addColorItem(string body, int value, key_type key) {
     addSelItem(body, COLORBAR, key);
     auto& it = items.back();
     it.type = diColorItem;
@@ -306,7 +352,7 @@ EX namespace dialog {
      return alpha / degree;
      }
 
-  EX void addMatrixItem(string body, transmatrix& value, int key, int dim IS(GDIM)) {
+  EX void addMatrixItem(string body, transmatrix& value, key_type key, int dim IS(GDIM)) {
     addSelItem(body, COLORBAR, key);
     auto& it = items.back();
     it.type = diMatrixItem;
@@ -348,14 +394,14 @@ EX namespace dialog {
     items.push_back(it);
     }
 
-  EX void addItem(string body, int key) {
+  EX void addItem(string body, key_type key) {
     item it(diItem);
     it.body = body;
     it.key = key;
     items.push_back(it);
     }
 
-  EX void addBigItem(string body, int key) {
+  EX void addBigItem(string body, key_type key) {
     item it(diBigItem);
     it.body = body;
     it.key = key;
@@ -414,12 +460,25 @@ EX namespace dialog {
     else
       xs = vid.xres * 618/1000, xo = vid.xres * 186/1000;
     
+    int last_i = 0;
     for(int i=0; i<=isize(str); i++) {
       int ls = 0;
       int prev = last;
       if(str[i] == ' ') lastspace = i;
+      unsigned char ch = str[i];
+      if(ch >= 128 && ch < 192) continue;
+      if(i < isize(str)) {
+        char *ch = &str[i];
+        if(*ch == ')') continue;
+        if(starts_with(ch, "）")) continue;
+        }
+      if(i > 0) {
+        char *ch = &str[i - utfsize_before(str,i)];
+        if(*ch == '(') continue;
+        if(starts_with(ch, "（")) continue;
+        }
       if(textwidth(siz, str.substr(last, i-last)) > xs) {
-        if(lastspace == last) ls = i-1, last = i-1;
+        if(lastspace == last) ls = last_i, last = last_i;
         else ls = lastspace, last = ls+1;
         }
       if(str[i] == 10 || i == isize(str)) ls = i, last = i+1;
@@ -429,7 +488,7 @@ EX namespace dialog {
         else y += siz;
         lastspace = last;
         }
-      
+      last_i = i;
       }
     
     y += siz/2;
@@ -483,7 +542,7 @@ EX namespace dialog {
         }
       }
     
-    leftwidth = ISMOBILE ? 0 : textwidth(dfsize, "MMMMM") + dfsize/2;
+    leftwidth = never_keys() ? 0 : textwidth(dfsize, "MMMMM") + dfsize/2;
     
     fwidth = innerwidth + leftwidth + rightwidth;
     if(list_actual_size) fwidth += dfsize;
@@ -511,8 +570,7 @@ EX namespace dialog {
 
     flat_model_enabler fme;
     initquickqueue();
-    ld pix = 1 / (2 * cgi.hcrossf / cgi.crossf);
-    shiftmatrix V = shiftless(atscreenpos(0, 0, pix));
+    shiftmatrix ASP = atscreenpos(0, 0);
 
     color_t col = 0xFFFFFFFF;
 
@@ -521,22 +579,22 @@ EX namespace dialog {
 
     int yb = yt + list_actual_size;
 
-    curvepoint(hyperpoint(x-si, yt, 1, 1));
+    curvepoint(eupoint(x-si, yt));
     for(int i=0; i<=a/2; i++)
-      curvepoint(hyperpoint(x - si * cos(i*TAU/a), yb + si * sin(i*TAU/a), 1, 1));
+      curvepoint(eupoint(x - si * cos(i*TAU/a), yb + si * sin(i*TAU/a)));
     for(int i=(a+1)/2; i<=a; i++)
-      curvepoint(hyperpoint(x - si * cos(i*TAU/a), yt + si * sin(i*TAU/a), 1, 1));
-    queuecurve(V, col, 0x80, PPR::LINE);
+      curvepoint(eupoint(x - si * cos(i*TAU/a), yt + si * sin(i*TAU/a)));
+    queuecurve(ASP, col, 0x80, PPR::LINE);
 
     int yt1 = yt + (list_actual_size * list_skip) / list_full_size;
     int yb1 = yt + (list_actual_size * (list_skip + list_actual_size)) / list_full_size;
 
-    curvepoint(hyperpoint(x-siz, yt1, 1, 1));
+    curvepoint(eupoint(x-siz, yt1));
     for(int i=0; i<=a/2; i++)
-      curvepoint(hyperpoint(x - siz * cos(i*TAU/a), yb1 + siz * sin(i*TAU/a), 1, 1));
+      curvepoint(eupoint(x - siz * cos(i*TAU/a), yb1 + siz * sin(i*TAU/a)));
     for(int i=(a+1)/2; i<=a; i++)
-      curvepoint(hyperpoint(x - siz * cos(i*TAU/a), yt1 + siz * sin(i*TAU/a), 1, 1));
-    queuecurve(V, col, 0x80, PPR::LINE);
+      curvepoint(eupoint(x - siz * cos(i*TAU/a), yt1 + siz * sin(i*TAU/a)));
+    queuecurve(ASP, col, 0x80, PPR::LINE);
 
     quickqueue();
     }
@@ -550,8 +608,7 @@ EX namespace dialog {
 
       flat_model_enabler fme;
       initquickqueue();
-      ld pix = 1 / (2 * cgi.hcrossf / cgi.crossf);
-      shiftmatrix V = shiftless(atscreenpos(0, 0, pix));
+      shiftmatrix ASP = atscreenpos(0, 0);
 
       color_t col = addalpha(I.color);
 
@@ -560,35 +617,35 @@ EX namespace dialog {
       if(I.type == diIntSlider && I.p2 < sw/4) {
         for(int a=0; a<=I.p2; a++) {
           ld x = sl + sw * a * 1. / I.p2;
-          curvepoint(hyperpoint(x, y-si, 1, 1));
-          curvepoint(hyperpoint(x, y+si, 1, 1));
-          queuecurve(V, col, 0, PPR::LINE);
+          curvepoint(eupoint(x, y-si));
+          curvepoint(eupoint(x, y+si));
+          queuecurve(ASP, col, 0, PPR::LINE);
           }
         }
 
-      curvepoint(hyperpoint(sl, y-si, 1, 1));
+      curvepoint(eupoint(sl, y-si));
       for(int i=0; i<=a/2; i++)
-        curvepoint(hyperpoint(sr + si * sin(i*TAU/a), y - si * cos(i*TAU/a), 1, 1));
+        curvepoint(eupoint(sr + si * sin(i*TAU/a), y - si * cos(i*TAU/a)));
       for(int i=(a+1)/2; i<=a; i++)
-        curvepoint(hyperpoint(sl + si * sin(i*TAU/a), y - si * cos(i*TAU/a), 1, 1));
-      queuecurve(V, col, 0x80, PPR::LINE);
+        curvepoint(eupoint(sl + si * sin(i*TAU/a), y - si * cos(i*TAU/a)));
+      queuecurve(ASP, col, 0x80, PPR::LINE);
       quickqueue();
 
-      ld x = sl + sw * (I.type == diIntSlider ? I.p1 * 1. / I.p2 : I.param);
+      ld x = sl + sw * I.param;
       if(x < sl-si) {
-        curvepoint(hyperpoint(sl-si, y, 1, 1));
-        curvepoint(hyperpoint(x, y, 1, 1));
-        queuecurve(V, col, 0x80, PPR::LINE);
+        curvepoint(eupoint(sl-si, y));
+        curvepoint(eupoint(x, y));
+        queuecurve(ASP, col, 0x80, PPR::LINE);
         quickqueue();
         }
       if(x > sr+si) {
-        curvepoint(hyperpoint(sr+si, y, 1, 1));
-        curvepoint(hyperpoint(x, y, 1, 1));
-        queuecurve(V, col, 0x80, PPR::LINE);
+        curvepoint(eupoint(sr+si, y));
+        curvepoint(eupoint(x, y));
+        queuecurve(ASP, col, 0x80, PPR::LINE);
         quickqueue();
         }
-      for(int i=0; i<=a; i++) curvepoint(hyperpoint(x + siz * sin(i*TAU/a), y - siz * cos(i*TAU/a), 1, 1));
-      queuecurve(V, col, col, PPR::LINE);
+      for(int i=0; i<=a; i++) curvepoint(eupoint(x + siz * sin(i*TAU/a), y - siz * cos(i*TAU/a)));
+      queuecurve(ASP, col, col, PPR::LINE);
       quickqueue();
       }
     else if(I.type == diSlider) {
@@ -600,7 +657,7 @@ EX namespace dialog {
       displayfr(sl, mid, 2, dfsize * I.scale/100, "{", I.color, 16);
       if(I.p2 < sw / 4) for(int a=0; a<=I.p2; a++) if(a != I.p1)
         displayfr(sl + double(sw * a / I.p2), mid, 2, dfsize * I.scale/100, a == I.p1 ? "#" : ".", I.color, 8);
-      displayfr(sl + double(sw * I.p1 / I.p2), mid, 2, dfsize * I.scale/100, "#", I.color, 8);
+      displayfr(sl + double(sw * I.param), mid, 2, dfsize * I.scale/100, "#", I.color, 8);
       displayfr(sr, mid, 2, dfsize * I.scale/100, "}", I.color, 0);
       }
     }
@@ -614,37 +671,99 @@ EX namespace dialog {
 
     flat_model_enabler fme;
     initquickqueue();
-    ld pix = 1 / (2 * cgi.hcrossf / cgi.crossf);
-    shiftmatrix V = shiftless(atscreenpos(x, y, pix));
+    shiftmatrix ASP = atscreenpos(x, y);
 
     for(int i=0; i<=360; i++)
-      curvepoint(hyperpoint(r * sin(i*degree), r*cos(i*degree), 1, 1));
-    queuecurve(V, 0xFFFFFFFF, 0x202020FF, PPR::LINE);
+      curvepoint(eupoint(r * sin(i*degree), r*cos(i*degree)));
+    queuecurve(ASP, 0xFFFFFFFF, 0x202020FF, PPR::LINE);
 
     color_t cols[3] = {0xFF8080FF, 0x80FF80FF, 0x8080FFFF};
     for(int a=0; a<dim; a++) {
       auto pt = pts[a]; pt[2] = 1; pt[3] = 1;
-      curvepoint(hyperpoint(0,0,1,1));
+      curvepoint(eupoint(0,0));
       curvepoint(pt);
       // queueline(V * hyperpoint(0,0,1,1), V * pt, cols[a], 0);
-      queuecurve(V, cols[a], 0, PPR::LINE);
+      queuecurve(ASP, cols[a], 0, PPR::LINE);
       }
     if(dim == 3) for(int a=0; a<dim; a++) {
       auto pt = pts[a]; ld val = -pt[2] * tsize / r / 5;
-      curvepoint(hyperpoint(pt[0], pt[1]+val, 1, 1));
-      curvepoint(hyperpoint(pt[0]-val, pt[1]-val*sqrt(3)/2, 1, 1));
-      curvepoint(hyperpoint(pt[0]+val, pt[1]-val*sqrt(3)/2, 1, 1));
-      curvepoint(hyperpoint(pt[0], pt[1]+val, 1, 1));
-      queuecurve(V, cols[a], cols[a] & 0xFFFFFF80, PPR::LINE);
+      curvepoint(eupoint(pt[0], pt[1]+val));
+      curvepoint(eupoint(pt[0]-val, pt[1]-val*sqrt(3)/2));
+      curvepoint(eupoint(pt[0]+val, pt[1]-val*sqrt(3)/2));
+      curvepoint(eupoint(pt[0], pt[1]+val));
+      queuecurve(ASP, cols[a], cols[a] & 0xFFFFFF80, PPR::LINE);
       }
     quickqueue();
+    }
+
+  EX void draw_side_shade() {
+    int steps = menu_darkening - darken;
+
+    color_t col = (backcolor << 8) | (255 - (255 >> steps));
+
+    if(svg::in || !(auraNOGL || vid.usingGL)) {
+      flat_model_enabler fme;
+      initquickqueue();
+      curvepoint(eupoint(vid.xres-dwidth, -10));
+      curvepoint(eupoint(vid.xres + 10, -10));
+      curvepoint(eupoint(vid.xres + 10, vid.yres + 10));
+      curvepoint(eupoint(vid.xres-dwidth, vid.yres + 10));
+      curvepoint(eupoint(vid.xres-dwidth, -10));
+      queuecurve(atscreenpos(0, 0), 0, col, PPR::LINE);
+      quickqueue();
+      }
+
+    #if CAP_GL
+    else {
+      auto full = part(col, 0);
+      static vector<glhr::colored_vertex> auravertices;
+      auravertices.clear();
+      ld width = vid.xres / 100;
+      for(int i=4; i<steps && i < 8; i++) width /= sqrt(2);
+      for(int x=0; x<16; x++) {
+        for(int c=0; c<6; c++) {
+          int bx = (c == 1 || c == 3 || c == 5) ? x+1 : x;
+          int by = (c == 2 || c == 4 || c == 5) ? vid.yres : 0;
+          int cx = bx == 0 ? 0 : bx == 16 ?vid.xres :
+            vid.xres - dwidth + width * tan((bx-8)/8. * 90._deg);
+          part(col, 0) = lerp(0, full, bx / 16.);
+          auravertices.emplace_back(hyperpoint(cx - current_display->xcenter, by - current_display->ycenter, 0, 1), col);
+          }
+        }
+      glflush();
+      current_display->next_shader_flags = GF_VARCOLOR;
+      dynamicval<eModel> m(pmodel, mdPixel);
+      current_display->set_all(0, 0);
+      glhr::id_modelview();
+      glhr::prepare(auravertices);
+      glhr::set_depthtest(false);
+      glDrawArrays(GL_TRIANGLES, 0, isize(auravertices));
+      }
+    #endif
+    }
+
+  EX string keyboard_what;
+
+  EX ld dialog_font_scale = 1;
+
+  EX int display_keys = 1;
+
+  EX bool actual_display_keys() {
+    if(display_keys == 2) return true;
+    if(display_keys == 1) return !mousing;
+    return false;
+    }
+
+  EX bool never_keys() {
+    return ISMOBILE || among(display_keys, 0, 3);
     }
 
   EX void display() {
 
     callhooks(hooks_display_dialog);
+    if(just_refreshing == 1) return;
     int N = items.size();
-    dfsize = vid.fsize;
+    dfsize = vid.fsize * dialog_font_scale;
     #if ISMOBILE || ISPANDORA
     dfsize *= 3;
     #endif
@@ -657,6 +776,10 @@ EX namespace dialog {
     if(current_display->sidescreen) {
       dwidth = vid.xres - vid.yres;
       dcenter = vid.xres - dwidth / 2;
+      }
+    else if(cmode & sm::DIALOG_OFFMAP) {
+      dwidth = vid.xres / 3;
+      dcenter = vid.xres * 5 / 6;
       }
     
     measure();
@@ -686,52 +809,7 @@ EX namespace dialog {
       list_skip = 0;
       }
     
-    if(current_display->sidescreen && darken < menu_darkening) {
-      int steps = menu_darkening - darken;
-      color_t col = (backcolor << 8) | (255 - (255 >> steps));
-
-      if(svg::in || !(auraNOGL || vid.usingGL)) {
-        flat_model_enabler fme;
-        initquickqueue();
-        ld pix = 1 / (2 * cgi.hcrossf / cgi.crossf);
-        curvepoint(hyperpoint(vid.xres-dwidth, -10, 1, 1));
-        curvepoint(hyperpoint(vid.xres + 10, -10, 1, 1));
-        curvepoint(hyperpoint(vid.xres + 10, vid.yres + 10, 1, 1));
-        curvepoint(hyperpoint(vid.xres-dwidth, vid.yres + 10, 1, 1));
-        curvepoint(hyperpoint(vid.xres-dwidth, -10, 1, 1));
-        shiftmatrix V = shiftless(atscreenpos(0, 0, pix));
-        queuecurve(V, 0, col, PPR::LINE);
-        quickqueue();
-        }
-
-      #if CAP_GL
-      else {
-        auto full = part(col, 0);
-        static vector<glhr::colored_vertex> auravertices;
-        auravertices.clear();
-        ld width = vid.xres / 100;
-        for(int i=4; i<steps && i < 8; i++) width /= sqrt(2);
-        for(int x=0; x<16; x++) {
-          for(int c=0; c<6; c++) {
-            int bx = (c == 1 || c == 3 || c == 5) ? x+1 : x;
-            int by = (c == 2 || c == 4 || c == 5) ? vid.yres : 0;
-            int cx = bx == 0 ? 0 : bx == 16 ?vid.xres :
-              vid.xres - dwidth + width * tan((bx-8)/8. * 90._deg);
-            part(col, 0) = lerp(0, full, bx / 16.);
-            auravertices.emplace_back(hyperpoint(cx - current_display->xcenter, by - current_display->ycenter, 0, 1), col);
-            }
-          }
-        glflush();
-        current_display->next_shader_flags = GF_VARCOLOR;
-        dynamicval<eModel> m(pmodel, mdPixel);
-        current_display->set_all(0, 0);
-        glhr::id_modelview();
-        glhr::prepare(auravertices);
-        glhr::set_depthtest(false);
-        glDrawArrays(GL_TRIANGLES, 0, isize(auravertices));
-        }
-      #endif
-      }
+    if(current_display->sidescreen && darken < menu_darkening) draw_side_shade();
 
     bool inlist = false;
     int need_to_skip = 0;
@@ -791,7 +869,7 @@ EX namespace dialog {
           continue;
           }
         else list_left -= size;
-        if(list_next_key) { key_actions[list_next_key] = key_actions[I.key]; I.key = list_next_key++;  }
+        if(list_next_key) { if(key_actions.count(I.key)) key_actions[list_next_key] = key_actions[I.key]; I.key = list_next_key++;  }
         }
 
       top = tothei;
@@ -828,7 +906,7 @@ EX namespace dialog {
           displayfr(dcenter, mid, 2, dfsize * I.scale/100, I.body, I.color, 8);
           }
         else {
-          if(!mousing)
+          if(actual_display_keys())
             displayfr(keyx, mid, 2, dfsize * I.scale/100, keyname(I.key), I.colork, 16);
           displayfr(itemx, mid, 2, dfsize * I.scale/100, I.body, I.color, 0);
 
@@ -836,13 +914,11 @@ EX namespace dialog {
             int a = uishape();
             flat_model_enabler fme;
             initquickqueue();
-            ld pix = 1 / (2 * cgi.hcrossf / cgi.crossf);
             color_t col = addalpha(I.color);
             ld sizf = dfsize * I.scale / 150;
             ld siz = sizf * sqrt(0.15+0.85*I.param/255.);
             for(int i=0; i<=a; i++) curvepoint(hyperpoint(siz * sin(i*TAU/a), -siz * cos(i*TAU/a), 1, 1));
-            shiftmatrix V = shiftless(atscreenpos(valuex + sizf, mid, pix));
-            queuecurve(V, col, (I.colorv << 8) | 0xFF, PPR::LINE);
+            queuecurve(atscreenpos(valuex + sizf, mid), col, (I.colorv << 8) | 0xFF, PPR::LINE);
             quickqueue();
             }
           else {
@@ -898,6 +974,14 @@ EX namespace dialog {
           if(in) {
             if(c == 1) getcstat = SDLK_LEFT;
             else if(c == 2) getcstat = SDLK_RIGHT;
+            else if(c == 3) {
+              getcstat = PSEUDOKEY_ONSCREEN_KEYBOARD;
+              keyboard_what = "pi";
+              }
+            else if(c >= 32) {
+              getcstat = PSEUDOKEY_ONSCREEN_KEYBOARD;
+              keyboard_what = ""; keyboard_what += c;
+              }
             else getcstat = c;
             }
           displayfr(xpos, mid, 2, dfsize * I.scale/100, s, dialogcolor_over(in), 8);
@@ -913,10 +997,12 @@ EX namespace dialog {
   EX void handle_actions(int &sym, int &uni) {
     if(key_actions.count(uni)) {
       key_actions[uni]();
+      if(uni >= ' ' && uni <= 127) ignore_textinput = true;
       sym = uni = 0;
       return;
       }
     if(key_actions.count(sym)) {
+      if(sym >= ' ' && sym <= 127) ignore_textinput = true;
       key_actions[sym]();
       sym = uni = 0;
       return;
@@ -934,7 +1020,7 @@ EX namespace dialog {
       highlight_text = "//missing";
       return;
       }
-    if(uni == '\n' || uni == '\r' || DIRECTIONKEY == SDLK_KP5) {
+    if(uni == '\n' || uni == '\r' || DIRECTIONKEY == SDLK_KP5 || uni == '`' || is_joy_index(sym, deck::enter) || is_joy_index(sym, deck::alt_enter)) {
       for(int i=0; i<isize(items); i++) 
         if(isitem(items[i]))
           if(is_highlight(items[i])) {
@@ -953,14 +1039,14 @@ EX namespace dialog {
       list_skip += 30;
       highlight_text = "//missing";
       }
-    if(DKEY == SDLK_PAGEDOWN) {
+    if(DKEY == SDLK_PAGEDOWN || is_joy_index(sym, deck::key_pagedown)) {
       uni = sym = 0;
       for(int i=0; i<isize(items); i++)
         if(isitem(items[i])) {
           set_highlight(items[i]);
           }
       }
-    if(DKEY == SDLK_PAGEUP) {
+    if(DKEY == SDLK_PAGEUP || is_joy_index(sym, deck::key_pageup)) {
       uni = sym = 0;
       for(int i=0; i<isize(items); i++) 
         if(isitem(items[i])) {
@@ -1031,7 +1117,7 @@ EX namespace dialog {
       if(x > 255) x = 255;
       part(color, uni - 'A') = x;
       }
-    else if(uni == ' ' || uni == '\n' || uni == '\r') {
+    else if(uni == ' ' || uni == '\n' || uni == '\r' || is_joy_index(sym, deck::enter) || is_joy_index(sym, deck::alt_enter)) {
       bool inHistory = false;
       for(int i=0; i<10; i++) if(colorhistory[i] == (color << shift))
         inHistory = true;
@@ -1067,7 +1153,7 @@ EX namespace dialog {
   void color_dialog::draw() {
     cmode = sm::NUMBER | dialogflags;
     if(cmode & sm::SIDE) gamescreen();
-    else emptyscreen();
+    else stillscreen = true, emptyscreen();
 
     dcenter = vid.xres/2;
     dwidth = vid.xres;
@@ -1201,6 +1287,7 @@ EX namespace dialog {
       rot_but(0, 1, "rotate in XY", 'z');
       }
 
+#if !ISMOBILE
     addBoolItem("mouse control", dialogflags & sm::MOUSEAIM, 'm');
     dialog::add_action([this] { dialogflags ^= sm::MOUSEAIM; });
     if(dialogflags & sm::MOUSEAIM) {
@@ -1208,6 +1295,7 @@ EX namespace dialog {
       *edit_matrix = cspin(1, 2, mouseaim_y) * *edit_matrix;
       mouseaim_x = mouseaim_y = 0;
       }
+#endif
 
     static string formula;
     formula = "?";
@@ -1225,6 +1313,7 @@ EX namespace dialog {
           if(p) p->load_as_animation(formula);
           }
         catch(hr_parse_exception&) { }
+        catch(param_exception&) { }
         };
       dialog::get_di().dialogflags |= dialogflags;
       });
@@ -1296,6 +1385,7 @@ EX namespace dialog {
       }
     catch(const hr_parse_exception&) { 
       }
+    catch(param_exception&) { }
     }
 
   EX void bound_low(ld val) {
@@ -1331,6 +1421,13 @@ EX namespace dialog {
     addKeyboardItem(lr ? " \t\x1\x2" : " \t");
     }
   
+  EX void setting_keyboard() {
+    addKeyboardItem("1234567890");
+    addKeyboardItem("QWERTYUIOP");
+    addKeyboardItem("ASDFGHJKL");
+    addKeyboardItem("ZXCVBNM_\b");
+    }
+
   EX bool onscreen_keyboard = ISMOBILE;
 
   struct number_dialog_help {
@@ -1339,42 +1436,65 @@ EX namespace dialog {
     };
 
   void number_dialog_help :: operator() () {
-    auto ne = *ptr;
     init("number dialog help");
     dialog::addBreak(100);
     dialog::addHelp(XLAT("You can enter formulas in this dialog."));
-    dialog::addBreak(100);
-    dialog::addHelp(XLAT("Functions available:"));
-    addHelp(available_functions());
-    dialog::addBreak(100);
-    dialog::addHelp(XLAT("Constants and variables available:"));
-    addHelp(available_constants());
-    if(ptr && ne.animatable) {
+
+    dialog::addBreak(150);
+
+    dialog::addItem("functions and constants", 'f');
+    dialog::add_action_push([] {
+      init("functions and constants");
+      dialog::addHelp(XLAT("Functions available:"));
+      addHelp(available_functions());
       dialog::addBreak(100);
-      dialog::addHelp(XLAT("Animations:"));
-      dialog::addHelp(XLAT("a..b -- animate linearly from a to b"));
-      dialog::addHelp(XLAT("a..b..|c..d -- animate from a to b, then from c to d"));
-      dialog::addHelp(XLAT("a../x..b../y -- change smoothly, x and y are derivatives"));
-      }
-    
-    /* "Most parameters can be animated simply by using '..' in their editing dialog. "
-      "For example, the value of a parameter set to 0..1 will grow linearly from 0 to 1. "
-      "You can also use functions (e.g. cos(0..2*pi)) and refer to other parameters."
-      )); */
-    
+      dialog::addHelp(XLAT("Constants available:"));
+      addHelp(available_constants());
+      dialog::addBreak(100);
+      dialog::addBack();
+      dialog::display();
+      });
+
+    dialog::addItem("variables", 'v');
+    dialog::add_action_push([] {
+      init("variables");
+      addHelp(available_variables());
+      dialog::addBreak(100);
+      dialog::addBack();
+      dialog::display();
+      });
+
     #if CAP_ANIMATIONS
-    dialog::addBreak(50);
-    auto f = find_edit(!ptr ? nullptr : ne.intval ? (void*) ne.intval : (void*) ne.editwhat);
+    auto f = find_edit(!ptr ? nullptr : ptr->intval ? (void*) ptr->intval : (void*) ptr->editwhat);
     if(f)
-      dialog::addHelp(XLAT("Parameter names, e.g. '%1'", f->parameter_name));
+      dialog::addItem(XLAT("parameter names, e.g. '%1'", f->name), 'p');
     else
-      dialog::addHelp(XLAT("Parameter names"));
-    dialog::addBreak(50);
-    for(auto& ap: anims::aps) {
-      dialog::addInfo(ap.par->parameter_name + " = " + ap.formula);
-      }
+      dialog::addItem(XLAT("parameter names"), 'p');
+    dialog::add_action_push([] {
+      init("parameter names");
+      for(auto& ap: anims::aps) {
+        dialog::addInfo(ap.par->name + " = " + ap.formula);
+        }
+      dialog::addBreak(100);
+      dialog::addBack();
+      dialog::display();
+      });
     #endif
-    dialog::addBreak(50);
+
+    if(ptr && ptr->animatable) {
+      dialog::addItem("animations", 'a');
+      dialog::add_action_push([] {
+        init("Animations:");
+        dialog::addHelp(XLAT("a..b -- animate linearly from a to b"));
+        dialog::addHelp(XLAT("a..b..|c..d -- animate from a to b, then from c to d"));
+        dialog::addHelp(XLAT("a../x..b../y -- change smoothly, x and y are derivatives"));
+        dialog::addBreak(100);
+        dialog::addBack();
+        dialog::display();
+        });
+      }
+
+    dialog::addBreak(150);
     dialog::addHelp(XLAT("These can be combined, e.g. %1", "projection*sin(0..2*pi)"));
     display();
     }
@@ -1392,15 +1512,18 @@ EX namespace dialog {
     init(title);
     addInfo(s);
     auto& ne = self;
-    if(ne.intval && ne.sc.direct == &identity_f)
-      addIntSlider(int(ne.vmin), int(*ne.editwhat), int(ne.vmax), 500);
+    if(ne.intval && ne.sc.int_slider) {
+      addIntSlider(int(ne.sc.direct(ne.vmin)), ne.sc.direct(*ne.editwhat), int(ne.sc.direct(ne.vmax)), 500);
+      }
     else
       addSlider(ne.sc.direct(ne.vmin), ne.sc.direct(*ne.editwhat), ne.sc.direct(ne.vmax), 500);
     addBreak(100);
-#if !ISMOBILE
-    addHelp(XLAT("You can scroll with arrow keys -- Ctrl to fine-tune"));
-    addBreak(100);
-#endif
+
+    if(!never_keys()) {
+      if(actual_display_keys()) addHelp(XLAT("You can scroll with arrow keys -- Ctrl to fine-tune"));
+      else addBreak(100);
+      addBreak(100);
+      }
     
     dialog::addBack();
     addSelItem(XLAT("default value"), disp(ne.dft), SDLK_HOME);
@@ -1424,16 +1547,19 @@ EX namespace dialog {
       }
     
     display();
+
+    #if SDLVER >= 2
+    texthandler = [&ne] (const SDL_TextInputEvent& ev) {
+      if(key_actions.count(ev.text[0])) return;
+      ne.s += ev.text;
+      ne.apply_edit();
+      };
+    #endif
     
     keyhandler = [this, &ne] (int sym, int uni) {
       handleNavigation(sym, uni);
-      if((uni >= '0' && uni <= '9') || among(uni, '.', '+', '-', '*', '/', '^', '(', ')', ',', '|', 3) || (uni >= 'a' && uni <= 'z')) {
-        if(uni == 3) ne.s += "pi";
-        else ne.s += uni;
-        apply_edit();
-        }
-      else if(uni == '\b' || uni == '\t') {
-        ne.s = ne.s. substr(0, isize(ne.s)-1);
+      if(uni == '\b' || uni == '\t' || is_joy_index(sym, deck::key_pageup)) {
+        ne.s = ne.s. substr(0, isize(ne.s)-utfsize_before(ne.s, isize(ne.s)));
         sscanf(ne.s.c_str(), LDF, ne.editwhat);
         apply_edit();
         }
@@ -1443,7 +1569,7 @@ EX namespace dialog {
           (*ne.editwhat)++;
         else
           *ne.editwhat = ne.sc.inverse(ne.sc.direct(*ne.editwhat) + shiftmul * ne.step);
-        if(abs(*ne.editwhat) < ne.step * 1e-6 && !ne.intval) *ne.editwhat = 0;
+        if(abs(*ne.editwhat) < ne.step * 1e-6 && !ne.intval && ne.sc.zerify) *ne.editwhat = 0;
         apply_slider();
         }
       else if(DKEY == SDLK_LEFT) {
@@ -1451,11 +1577,11 @@ EX namespace dialog {
           (*ne.editwhat)--;
         else
           *ne.editwhat = ne.sc.inverse(ne.sc.direct(*ne.editwhat) - shiftmul * ne.step);
-        if(abs(*ne.editwhat) < ne.step * 1e-6 && !ne.intval) *ne.editwhat = 0;
+        if(abs(*ne.editwhat) < ne.step * 1e-6 && !ne.intval && ne.sc.zerify) *ne.editwhat = 0;
         apply_slider();
         }
   #endif
-      else if(sym == SDLK_HOME) {
+      else if(sym == SDLK_HOME || is_joy_index(sym, deck::space)) {
         *ne.editwhat = ne.dft;
         apply_slider();
         }
@@ -1480,20 +1606,72 @@ EX namespace dialog {
           
         apply_slider();
         }
+      else if(is_joy_index(sym, deck::show_keyboard)) {
+        onscreen_keyboard = !onscreen_keyboard;
+        }
+      else if(uni == PSEUDOKEY_ONSCREEN_KEYBOARD) {
+        ne.s += keyboard_what;
+        apply_edit();
+        }
+      else if(uni >= 32 && uni < 128) {
+        #if SDLVER < 2
+        if((uni >= '0' && uni <= '9') || among(uni, '.', '+', '-', '*', '/', '^', '(', ')', ',', '|', ' ', '=') || (uni >= 'a' && uni <= 'z')) {
+          ne.s += uni;
+          apply_edit();
+          }
+        #endif
+        }
       else if(doexiton(sym, uni)) ne.popfinal();
       };
-    }  
+    }
+
+  void bool_dialog::draw() {
+    cmode = dialogflags;
+    gamescreen();
+    init(title);
+
+    dialog::addBreak(100);
+
+    auto switch_to = [this] (bool b) {
+      bool do_switch = (*editwhat != b);
+      auto sw = switcher;
+      auto re = reaction;
+      popScreen();
+      if(do_switch) { sw(); if(re) re(); }
+      };
+
+    dialog::addBoolItem(XLAT("disable"), false, '0');
+    dialog::add_action([switch_to] { switch_to(false); });
+
+    dialog::addBoolItem(XLAT("enable"), true, '1');
+    dialog::add_action([switch_to] { switch_to(true); });
+
+    dialog::addBoolItem(XLAT("switch"), !*editwhat, 's');
+    dialog::add_action([switch_to, this] { switch_to(!*editwhat); });
+
+    dialog::addBoolItem(XLAT("set default"), dft, 'd');
+    dialog::add_action([switch_to, this] { switch_to(dft); });
+
+    dialog::addBreak(100);
+
+    if(help != "") addHelp(help);
+
+    if(extra_options) extra_options();
+
+    display();
+    }
 
   int nlpage = 1;
   int wheelshift = 0;
   
-  EX int handlePage(int& nl, int& nlm, int perpage) {
+  EX int handlePage(int& nl, int& nlm, int perpage, int maxpage IS(2)) {
     nlm = nl;
     int onl = nl;
     int ret = 0;
     if(nlpage) {
       nl = nlm = perpage; 
-      if(nlpage == 2) ret = nlm;
+      if(nlpage > maxpage) nlpage = maxpage;
+      if(nlpage > 1) ret = nlm * (nlpage - 1);
       int w = wheelshift;
       int realw = 0;
       while(w<0 && ret) {
@@ -1508,34 +1686,86 @@ EX namespace dialog {
     return ret;
     }
   
-  EX void displayPageButtons(int i, bool pages) {
+  #if HDR
+  constexpr flagtype DB_BACK = 1;
+  constexpr flagtype DB_HELP = 2;
+  constexpr flagtype DB_EXIT = 4;
+  constexpr flagtype DB_PLAIN = 8;
+  constexpr flagtype DB_ACTIVATE = 16;
+  constexpr flagtype DB_EXPLAIN = 32;
+  #endif
+
+  EX void display_bottom_buttons(int numpages, flagtype flags) {
+
+    struct button {
+      int key;
+      string text;
+      color_t col;
+      int width;
+      bool digits;
+      };
+    vector<button> buttons;
+    auto add_button = [&] (int k, string t, color_t c) {
+      buttons.emplace_back();
+      buttons.back().key = k;
+      buttons.back().text = t;
+      buttons.back().col = c;
+      buttons.back().digits = false;
+      };
+
+    if(numpages == 2) {
+      add_button('1', XLAT("page") + " 1", nlpage == 1 ? 0xD8D8C0 : dialogcolor);
+      add_button('2', XLAT("page") + " 2", nlpage == 2 ? 0xD8D8C0 : dialogcolor);
+      add_button('3', XLAT("all"), nlpage == 0 ? 0xD8D8C0 : dialogcolor);
+      }
+    else if(numpages > 2) {
+      add_button('1', XLAT("last page"), nlpage == 1 ? 0xD8D8C0 : dialogcolor);
+      add_button('2', XLAT("next page"), nlpage == numpages ? 0xD8D8C0 : dialogcolor);
+      add_button('3', nlpage ? its(nlpage) + "/" + its(numpages) : XLAT("all"), nlpage == 0 ? 0xD8D8C0 : dialogcolor);
+      buttons.back().digits = true;
+      }
+    else if(numpages == 0) {
+      if(flags & DB_PLAIN) add_button('1', XLAT("plain"), dialogcolor);
+      if(flags & DB_ACTIVATE) add_button('2', XLAT("touch to activate"), dialogcolor);
+      if(flags & DB_EXPLAIN) add_button('2', XLAT("touch to explain"), dialogcolor);
+      }
+    if(flags & DB_BACK) add_button(SDLK_ESCAPE, XLAT("go back"), dialogcolor);
+    if(flags & DB_HELP) add_button(SDLK_F1, XLAT("help"), dialogcolor);
+    if(flags & DB_EXIT) add_button('0', XLAT("exit mode"), dialogcolor);
+
+    int total_w = 0;
+
+    for(auto& b: buttons) {
+      string t = keyname(b.key) + " - " + b.text;
+      total_w += b.width = textwidth(vid.fsize, t);
+      }
+
+    int hole = (vid.xres - total_w) / (isize(buttons) + 1);
+
     int i0 = vid.yres - vid.fsize;
-    int xr = vid.xres / 80;
-    if(pages) if(displayfrZH(xr*8, i0, 1, vid.fsize, IFM("1 - ") + XLAT("page") + " 1", nlpage == 1 ? 0xD8D8C0 : dialogcolor, 8))
-      getcstat = '1';
-    if(pages) if(displayfrZH(xr*24, i0, 1, vid.fsize, IFM("2 - ") + XLAT("page") + " 2", nlpage == 1 ? 0xD8D8C0 : dialogcolor, 8))
-      getcstat = '2';
-    if(pages) if(displayfrZH(xr*40, i0, 1, vid.fsize, IFM("3 - ") + XLAT("all"), nlpage == 1 ? 0xD8D8C0 : dialogcolor, 8))
-      getcstat = '3';
-    if(i&1) if(displayfrZH(xr*56, i0, 1, vid.fsize, IFM(keyname(SDLK_ESCAPE) + " - ") + XLAT("go back"), dialogcolor, 8))
-      getcstat = '0';
-    if(i&2) if(displayfrZH(xr*72, i0, 1, vid.fsize, IFM("F1 - ") + XLAT("help"), dialogcolor, 8))
-      getcstat = SDLK_F1;
-    if(i&4) if(displayfrZH(xr*8, i0, 1, vid.fsize, IFM("1 - ") + XLAT("plain"), dialogcolor, 8))
-      getcstat = '1';
+    int x = 0;
+    for(auto& b: buttons) {
+      string t = IFM(keyname(b.key) + " - ") + b.text;
+      x += b.width + hole;
+      if(displayfrZH(x, i0, 1, vid.fsize, t, b.col, 16))
+        getcstat = b.key;
+      }
     }
   
-  EX bool handlePageButtons(int uni) {
-    if(uni == '1') nlpage = 1, wheelshift = 0;
-    else if(uni == '2') nlpage = 2, wheelshift = 0;
+  EX bool handlePageButtons(int sym, int uni, bool dkeys, int numpages) {
+    if(uni == '1') nlpage = max(nlpage-1, 1), wheelshift = 0;
+    else if(uni == '2') nlpage++, wheelshift = 0;
     else if(uni == '3') nlpage = 0, wheelshift = 0;
     else if(uni == PSEUDOKEY_WHEELUP) wheelshift--;
     else if(uni == PSEUDOKEY_WHEELDOWN) wheelshift++;
+    else if(dkeys && DKEY == SDLK_UP && nlpage > 1) nlpage--;
+    else if(dkeys && DKEY == SDLK_DOWN) nlpage++;
     else return false;
     return true;
     }
   
   extdialog::extdialog() {
+    closed = false;
     dialogflags = 0;
     if(cmode & sm::SIDE) dialogflags |= sm::MAYDARK | sm::SIDE;
     reaction = reaction_t();
@@ -1561,6 +1791,17 @@ EX namespace dialog {
     ne.reset_str();
     pushScreen(ne);
     return get_ne();
+    }
+
+  EX extdialog& editBool(bool& b, bool dft, string title, string help, const reaction_t& switcher) {
+    bool_dialog be;
+    be.editwhat = &b;
+    be.dft = dft;
+    be.title = title;
+    be.help = help;
+    be.switcher = switcher;
+    pushScreen(be);
+    return get_di();
     }
 
   EX number_dialog& editNumber(int& x, int vmin, int vmax, ld step, int dft, string title, string help) {
@@ -1602,12 +1843,11 @@ EX namespace dialog {
   
   bool_reaction_t file_action;
   
-  void handleKeyFile(int sym, int uni);
-
   bool search_mode;
 
   struct file_dialog : extdialog {
     void draw() override;
+    void handleKey(int sym, int uni);
     };
 
   void file_dialog::draw() {
@@ -1657,7 +1897,7 @@ EX namespace dialog {
       dialog::lastItem().color = vv.second;
       string vf = vv.first;
       bool dir = vv.second == CDIR;
-      dialog::add_action([vf, dir] {
+      dialog::add_action([vf, dir, this] {
         string& s(*cfileptr);
         string where = "", what = s, whereparent = "../";
         string last = "";
@@ -1688,7 +1928,7 @@ EX namespace dialog {
           str1 = where + vf;
           if(s == str1) {
             bool ac = file_action();
-            if(ac) popScreen();
+            if(ac) closed = true;
             }
           s = str1;
           }
@@ -1704,31 +1944,41 @@ EX namespace dialog {
     dialog::addItem("cancel", SDLK_ESCAPE);
     dialog::display();
 
-    keyhandler = handleKeyFile;
+    #if SDLVER >= 2
+    texthandler = [this] (const SDL_TextInputEvent& ev) {
+      int i = isize(*cfileptr) - (editext?0:4);
+      cfileptr->insert(i, ev.text);
+      };
+    #endif
+
+    keyhandler = [this] (int sym, int uni) { handleKey(sym, uni); };
     }
   
-  EX void handleKeyFile(int sym, int uni) {
+  void file_dialog::handleKey(int sym, int uni) {
     handleNavigation(sym, uni);
     string& s(*cfileptr);
     int i = isize(s) - (editext?0:4);
     
-    if(sym == SDLK_ESCAPE) {
+    if(sym == SDLK_ESCAPE || is_joy_index(sym, deck::escape)) {
       popScreen();
       }
-    else if(sym == SDLK_RETURN || sym == SDLK_KP_ENTER) {
+    else if(sym == SDLK_RETURN || sym == SDLK_KP_ENTER || is_joy_index(sym, deck::enter)) {
       bool ac = file_action();
-      if(ac) popScreen();
+      if(ac) closed = true;
       }
-    else if(sym == SDLK_BACKSPACE && i) {
-      s.erase(i-1, 1);
+    else if((sym == SDLK_BACKSPACE || is_joy_index(sym, deck::space) || is_joy_index(sym, deck::key_pageup)) && i) {
+      int len = utfsize_before(s, i);
+      s.erase(i-len, len);
       highlight_text = "//missing";
       list_skip = 0;
       }
+    #if SDLVER == 1
     else if(uni >= 32 && uni < 127) {
       s.insert(i, s0 + char(uni));
       highlight_text = "//missing";
       list_skip = 0;
       }
+    #endif
     return;
     }
 
@@ -1745,8 +1995,8 @@ EX namespace dialog {
 
   EX string infix;
   
-  string foreign_letters = "ÁÄÇÈÉÍÎÖÚÜßàáâãäçèéêìíîïòóôõöøùúüýąćČčĎďĘęĚěğİıŁłńňŘřŚśŞşŠšŤťůŹźŻżŽž";
-  string latin_letters   = "AACEEIIOUUsAAAAACEEEIIIIOOOOOOUUUYACCCDDEEEEGIILLNNRRSSSSSSTTUZZZZZZ";
+  EX string foreign_letters = "ÁÄÇÈÉÍÎÖÚÜßàáâãäçèéêìíîïòóôõöøùúüýąćČčĎďĘęĚěğİıŁłńňŘřŚśŞşŠšŤťůŹźŻżŽž";
+  EX string latin_letters   = "AACEEIIOUUsAAAAACEEEIIIIOOOOOOUUUYACCCDDEEEEGIILLNNRRSSSSSSTTUZZZZZZ";
 
   EX string human_simplify(const string &s, bool include_symbols) {
     string t = "";
@@ -1784,10 +2034,16 @@ EX namespace dialog {
       }
     }
 
-  EX bool editInfix(int uni) {
+  EX bool editInfix(int sym, int uni) {
     if(uni >= 'A' && uni <= 'Z') infix += uni;
     else if(uni >= 'a' && uni <= 'z') infix += uni-32;
-    else if(infix != "" && uni == 8) infix = infix.substr(0, isize(infix)-1);
+    else if(infix != "" && (uni == 8 || is_joy_index(sym, deck::space) || is_joy_index(sym, deck::key_pageup))) infix = infix.substr(0, isize(infix)-1);
+    else if(uni == PSEUDOKEY_ONSCREEN_KEYBOARD) {
+      infix += keyboard_what;
+      }
+    else if(is_joy_index(sym, deck::show_keyboard)) {
+      onscreen_keyboard = !onscreen_keyboard;
+      }
     else if(infix != "" && uni != 0) infix = "";
     else return false;
     return true;
@@ -1799,6 +2055,11 @@ EX namespace dialog {
     string s = XLATN(name);
     if(!hasInfix(s)) return;
     dialog::v.push_back(make_pair(s, color));
+    }
+
+  EX void vpush2(color_t color, const string& name, const string& extra) {
+    if(!hasInfix(extra)) return;
+    dialog::v.push_back(make_pair(name, color));
     }
   
   EX string editchecker(int sym, int uni) {
@@ -1814,6 +2075,7 @@ EX namespace dialog {
     void draw() override;
     void start_editing(string& s);
     bool handle_edit_string(int sym, int uni, function<string(int, int)> checker = editchecker);
+    void handle_textinput();
     };
   #endif
   
@@ -1833,23 +2095,41 @@ EX namespace dialog {
   bool string_dialog::handle_edit_string(int sym, int uni, function<string(int, int)> checker) {
     auto& es = *edited_string;
     string u2;
-    if(DKEY == SDLK_LEFT) editpos--;
-    else if(DKEY == SDLK_RIGHT) editpos++;
-    else if(uni == 8) {
+    if(DKEY == SDLK_LEFT) editpos -= utfsize_before(es, editpos);
+    else if(DKEY == SDLK_RIGHT) editpos += utfsize(es[editpos]);
+    else if(uni == '\t' || is_joy_index(sym, deck::key_t) || is_joy_index(sym, deck::key_pagedown)) {
+      es = ""; editpos = 0;
+      }
+    else if(uni == 8 || is_joy_index(sym, deck::key_f) || is_joy_index(sym, deck::key_pageup)) {
       if(editpos == 0) return true;
-      es.replace(editpos-1, 1, "");
-      editpos--;
+      int len = utfsize_before(es, editpos);
+      es.replace(editpos-len, len, "");
+      editpos -= len;
       if(reaction) reaction();
       }
     else if((u2 = checker(sym, uni)) != "") {
+      #if SDLVER == 1
       for(char c: u2) {
         es.insert(editpos, 1, c);
         editpos ++;
         }
+      #endif
       if(reaction) reaction();
       }
     else return false;
     return true;
+    }
+
+  void string_dialog::handle_textinput() {
+    #if SDLVER >= 2
+    texthandler = [this] (const SDL_TextInputEvent& ev) {
+      auto& es = *edited_string;
+      string txt = ev.text;
+      es.insert(editpos, txt);
+      editpos += isize(txt);
+      if(reaction) reaction();
+      };
+    #endif
     }
 
   void string_dialog::draw() {
@@ -1876,6 +2156,8 @@ EX namespace dialog {
       if(handle_edit_string(sym, uni)) ;
       else if(doexiton(sym, uni)) popfinal();
       };
+
+    handle_textinput();
     }
 
   EX void edit_string(string& s, string title, string help) {
@@ -1909,6 +2191,10 @@ EX namespace dialog {
   EX void addBoolItem_action_neg(const string& s, bool& b, int c) { 
     dialog::addBoolItem(s, !b, c);
     dialog::add_action([&b] { b = !b; });
+    }
+
+  EX void addItem_mouse(const string& s, key_type c) {
+    dialog::addBoolItem(s, mousekey == c, c);
     }
 
   EX bool cheat_forbidden() {

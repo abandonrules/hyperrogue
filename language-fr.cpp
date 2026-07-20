@@ -2163,30 +2163,16 @@ S("Saved the high quality shot to %1", "Capture d'écran à haute résolution en
 S("Map saved to %1", "Carte sauvegardée dans %1")
 S("Map loaded from %1", "Carte chargée depuis %1")
 S("copying", "copier")
-S("boundary", "frontière")
 S("clear monster", "enlever les monstres")
 S("use at your own risk!", "utiliser à vos risques et périls !")
 
-// Note: in English, these have been arranged from longest to shortest.
-// This gives a somewhat nice effect on the top left corner of the screen.
-// You may want to aim for the same effect when translating
-
-S("0-9 = radius (%1)", "0-9 = rayon (%1)")
-S("b = boundary", "i = frontière")
-S("m = monsters", "m = monstre")
-S("w = walls",    "w = murs")
-S("i = items",    "l = objets")
-S("l = lands",    "c = pays")
-S("c = copy",     "b = copier")
-
-// And this is from shortest to longest (bottom left corner)
-S("F1 = help",                "F1 = aide")
-S("F2 = save",                "F2 = sauvegarder")
-S("F3 = load",                "F3 = charger")
-S("F5 = restart",             "F5 = redémarrer")
-S("F6 = HQ shot",             "F6 = capture HQ")
-S("F7 = player on/off",       "F7 = joueur on/off")
-S("ESC = return to the game", "ESC = retour au jeu")
+S("radius",   "rayon")
+S("boundary", "frontière")
+S("monsters", "monstre")
+S("walls",    "murs")
+S("items",    "objets")
+S("lands",    "pays")
+S("copy",     "copier")
 
 S("This mode allows you to edit the map.\n\n"
   "NOTE: Use at your own risk. Combinations which never "
@@ -2343,8 +2329,8 @@ S("Follow the Mouse and escape with %the1!", "Suivez la Souris et échappez vous
 S("Hardness frozen at %1.", "Difficulté figée : %1.")
 S("Congratulations! Your score is %1.", "Félicitations ! Votre score est de %1.")
 
-S("u = undo",     "u = défaire")
-S("f = flip %1",  "f = renverser %1")
+S("undo", "défaire")
+S("flip", "renverser")
 
 S("Failed to save map to %1", "Échec de la sauvegarde de la carte vers %1")
 S("Failed to load map from %1", "Échec du chargement de la carte depuis %1")
@@ -2463,8 +2449,7 @@ S("eight domains", "huit domaines")
 S("zebra pattern", "motif zébré")
 S("three stripes", "trois bandes")
 S("random black-and-white", "noir et blanc aléatoire")
-S("p = paint", "p = couleurs")
-S("r = regular", "r = régulier")
+S("paint", "couleurs")
 
 S("In this mode you can draw your own player characters, "
   "floors, monsters, and items. Press 'e' while hovering over "
@@ -2503,24 +2488,19 @@ S("hexagonal", "hexagonal")
 S("heptagonal", "heptagonal")
 S("floor/pattern", "sol/motif")
 
-S("l = layers: %1", "l = couches : %1")
-S("1-9 = rotations: %1", "1-9 = rotations : %1")
-S("0 = symmetry", "0 = symétrie")
-S("0 = asymmetry", "0 = asymétrie")
+S("layers", "couches")
+S("rotations", "rotations")
+S("symmetry", "symétrie")
 S("%1 vertices", "sommets : %1")
-S("a = add v", "a = ajouter v")
-S("m = move v", "m = déplacer v")
-S("d = delete v", "d = supprimer v")
-S("c = readd v", "c = réajouter v")
-S("b = reorder", "b = réordonner")
-S("t = shift", "t = décaler")
-S("y = spin", "y = tourner")
+S("add vertex", "ajouter v") // fix
+S("move vertex", "déplacer v") // fix
+S("delete vertex", "supprimer v") // fix
+S("shift", "décaler")
+S("spin", "tourner")
 
-S("'n' to start", "n = démarrer")
-S("z = zoom in", "z = agrandir")
-S("o = zoom out", "o = rétrécir")
-S("g = grid", "g = grille")
-S("e = edit this", "e = éditer")
+S("'n' to start", "n = démarrer") // fix
+S("grid", "grille")
+S("select shape to edit", "éditer") // fix
 
 S("x: %1", "x: %1")
 S("y: %1", "y: %1")
@@ -4958,32 +4938,36 @@ S("This guided tour is different than most other game tutorials -- "
   "We will not explain this land at the moment, and you could potentially "
   "get lost there.\n\n"
   "Remember that you can get to the next slide by pressing Enter.",
-  
+
   "Cette visite guidée est différente de la plupart des autres tutoriels de jeu -- "
   "vous n'avez pas besoin de faire quoi que se soit, et pouvez aller où vous voulez.\n\n"
   "Cependant, %le1 n'est pas ce dont on parle maintenant. Nous n'expliquerons pas ce "
   "pays maintenant, et vous pourriez vous y perdre.\n\n"
   "Rappelez vous que vous pouvez aller à la diapositive suivante en appuyant sur Entrée.")
 
-S("Introduction", "Introduction")
-S("Welcome to the HyperRogue Guided Tour!", "Bienvenue dans la visite guidée d'HyperRogue!")
 S(
-  "This tour is mostly aimed to show what is "
-  "special about the geometry used by HyperRogue. "
-  "It also shows the basics of gameplay, and "
-  "how is it affected by geometry.\n\n"
   "You decide when you want to stop playing with the "
   "current \"slide\" and go to the next one, by pressing Enter. You can also "
   "press ESC to see a "
   "menu with other options.",
+
+  "Vous décidez quand vous voulez arrêter de jouer avec la "
+  "\"diapositive\" actuelle et aller à la suivante, en appuyant sur Entrée. "
+  "Vous pouvez aussi appuyer ESC pour voir un menu avec d'autres options.")
+
+S("Introduction", "Introduction")
+S("Welcome to the HyperRogue Guided Tour!", "Bienvenue dans la visite guidée d'HyperRogue!")
+
+S(
+  "This tour is mostly aimed to show what is "
+  "special about the geometry used by HyperRogue. "
+  "It also shows the basics of gameplay, and "
+  "how is it affected by geometry.",
   
   "Cette visite a surtout pour but de montrer ce qui "
   "est spécial avec la géométrie utilisée par HyperRogue. "
   "Elle montre aussi les bases des mécaniques de jeu, et "
-  "comment il est affecté par la géométrie.\n\n"
-  "Vous décidez quand vous voulez arrêter de jouer avec la "
-  "\"diapositive\" actuelle et aller à la suivante, en appuyant sur Entrée. "
-  "Vous pouvez aussi appuyer ESC pour voir un menu avec d'autres options.")
+  "comment il est affecté par la géométrie.")
 
 S("Basics of gameplay", "Bases du jeu")
 S("gain Ice Diamonds", "gagnez des Diamants des glaces")
@@ -6966,11 +6950,11 @@ S("This pattern needs x-y divisible by 3", "Ce motif nécessite que x-y soit div
 S("This pattern needs x-y divisible by 2", "Ce motif nécessite que x-y soit divisible par 2")
 
 // missing from the texture editor
-S("p = color", "p = couleur")
-S("b = brush size: %1", "b = taille de brosse : %1")
-S("d = draw", "d = dessiner")
-S("l = line", "l = ligne")
-S("c = circle", "c = cercle")
+S("color", "couleur")
+S("brush size", "taille de brosse")
+S("draw", "dessiner")
+S("line", "ligne")
+S("circle", "cercle")
 
 // new binary tiling
 
@@ -7461,7 +7445,7 @@ S("Welcome to the Heptagonal Mode!", "Bienvenue dans le mode Heptagonal !")
 S("adult Tortoise flags", "drapeaux de Tortues adultes")
 S("baby Tortoise flags", "drapeaux de bébé Tortues")
 
-S("Map settings", "réglages de carte")
+S("map settings", "réglages de carte")
 
 S("disable wandering monsters","désactiver les monstres vagabonds")
 S("disable ghost timer", "désactiver le compteur fantôme")
@@ -7540,6 +7524,7 @@ Cell("{3,3,3} 5") Cell("{4,3,3} 8") Cell("{3,3,4} 16") Cell("{3,4,3} 24") Cell("
   S(x " field quotient space", x " champ d'espace quotient")
 
 Honeycomb("{5,3,4}") Honeycomb("{4,3,5}") Honeycomb("{3,3,6}") Honeycomb("{3,4,4}") Honeycomb("{5,3,5}") Honeycomb("{5,3,6}") Honeycomb("{4,3,6}") Honeycomb("{5,3,6}")
+Honeycomb("{3,4,5}") Honeycomb("{3,5,3}") Honeycomb("{3,5,4}") Honeycomb("{3,5,5}")
 
 #undef Honeycomb
 
@@ -7659,7 +7644,8 @@ S("In the orthogonal projection, objects on the other side of the sphere are dra
 // restructured menus
 
 S("colors & aura", "couleur & aura")
-S("colors of some game objects can be edited by clicking them.", "Les couleurs de certains objets du jeu peuvent être éditées en les cliquant.")
+S("colors of some game objects", "Les couleurs de certains objets du jeu")
+S("can be edited by clicking them.", "peuvent être éditées en les cliquant.")
 S("standard grid color", "grille de couleurs standard")
 S("mouse & touchscreen", "souris & écran tactile")
 S("settings", "réglages")
@@ -8100,7 +8086,7 @@ S("You are currently in a product space.", "Vous êtes actuellement dans un espa
 
 S("Nil quotient spaces", "espaces quotients de Nil")
 S("honeycomb", "grille")
-S("Y period must be divisible by Z period", "La période Y doit être divisible par la période Z")
+S("Y period * X period (*2 for hex) must be divisible by Z period", "La période Y * la période X doit être divisible par la période Z")
 S("quotient product spaces", "quotient d'espaces produits")
 S("Set to 0 to make it non-periodic.", "Régler à 0 pour le rendre apériodique.")
 S("Works if the underlying space is symmetric.", "Marche si l'espace sous-jacent est symétrique.")
@@ -8466,8 +8452,8 @@ S("Animations:", "Animations : ")
 S("a..b -- animate linearly from a to b", "a..b -- anime linéairement de a à b")
 S("a..b..|c..d -- animate from a to b, then from c to d", "a..b..|c..d -- anime de a à b, puis de c à d")
 S("a../x..b../y -- change smoothly, x and y are derivatives", "a../x..b../y -- change doucement, x et y sont dérivées")
-S("Parameter names, e.g. '%1'", "Noms des paramètres, par exemple '%1'")
-S("Parameter names", "Noms des paramètres")
+S("parameter names, e.g. '%1'", "noms des paramètres, par exemple '%1'")
+S("parameter names", "noms des paramètres")
 S("These can be combined, e.g. %1", "Ceux là peuvent être combinés, par exemple %1")
 
 // manifolds
@@ -8651,19 +8637,20 @@ S("display only chessboard white", "afficher seulement le plateau d'échec blanc
 S("display only chessboard black", "afficher seulement le plateau d'échec noir")
 
 S(
-          "This lets you specify the color pattern as a function of the cell. "
+          "This lets you specify the color pattern as a function of the cell.\n",
+
+          "Vous laisse choisir le motif de couleur comme fonction de la case.\n")
+
+S(
           "Available parameters:\n\n"
           "x, y, z (hyperboloid/sphere/plane coordinates in non-crystal geometries)\n"
           "ex, ey, ez (in Euclidean geometries)\n"
-          "x0, x1, x2... (crystal geometry only)\n"
-          "0 is black, 1 is white, rgb(1,0,0) is red, ifp(p-2,1,0) is blue (p=1 for red, 2 for green, 3 for blue).",
+          "x0, x1, x2... (crystal geometry only)\n",
 
-          "Vous laisse choisir le motif de couleur comme fonction de la case. "
 	  "Paramètres disponibles : \n\n"
           "x, y, z (coordonnées hyperboloïde/sphère/plan dans des géométries non-cristallines)\n"
           "ex, ey, ez (dans une géométrie euclidienne)\n"
           "x0, x1, x2... (dans les géométries cristallines seulement)\n"
-          "0 est noir, 1 est blanc, rgb(1,0,0) est rouge, ifp(p-2,1,0) est bleu (p=1 pour rouge, 2 pour vert, 3 pour bleu)."
           )
           
 S(
@@ -9072,13 +9059,13 @@ S("F5 = clear", "F5 = effacer")
 S("Are you sure you want to clear the map?", "Êtes vous sûr de vouloir effacer la carte ?")
 S("select area to copy", "sélectionner la zone à copier")
 S("statue", "statue")
-S("c = reuse", "c = réutiliser")
-S("d = delete", "d = effacer")
-S("p = grid color", "p = couleur de la grille")
-S("f = fill", "f = remplir")
-S("T = text", "T = texte")
-S("e = erase", "e = effacer")
-S("z = spheres", "z = sphère")
+S("reuse", "réutiliser")
+S("delete", "effacer")
+S("grid color", "couleur de la grille")
+S("fill", "remplir")
+S("text", "texte")
+S("erase", "effacer")
+S("spheres", "sphère")
 S("z-level", "niveau z")
 
 S("Failed to load pictures from %1", "Échec du chargement des images depuis %1")

@@ -229,6 +229,18 @@ void edit_segment(int aid) {
     current_segment = nullptr;
     popScreen();
     });
+  if(isize(anims[aid].frames) == 1) {
+    dialog::addItem("move to end", 'm');
+    dialog::add_action([aid] {
+      auto &f = anims[aid].frames[0];
+      View = f.sView; NLP = f.ori; centerover = f.where;
+      ld dist = f.front_distance;
+      while(dist > 0.1) {
+        shift_view(ctangent(2, -0.1)); dist -= 0.1;
+        }
+      shift_view(ctangent(2, -dist));
+      });
+    }
   dialog::addBack();
   dialog::display();
   }
@@ -371,6 +383,8 @@ void snap_to_center() {
     };
   }
 
+void set_time(ld t);
+
 void show() {
   /* might not be changed automatically */
   if(vid.fixed_yz) spinEdge_full();
@@ -448,13 +462,9 @@ void show() {
 
   dialog::addItem("test the animation", 't');
   dialog::add_action([] {
-    animate_on = false;
-    last_time = HUGE_VAL;
-    last_segment = -1;
-    test_t = 0;
     dialog::editNumber(test_t, 0, 100, 0.1, 0, "enter the percentage", "");
     dialog::get_di().reaction = [] {
-      handle_animation(test_t / 100);
+      set_time(test_t / 100);
       };
     dialog::get_di().extra_options = [] {
       dialog::addSelItem("current segment", its(last_segment), 'C');
@@ -507,7 +517,8 @@ void prepare_for_interpolation(hyperpoint& h) {
 
 void after_interpolation(hyperpoint& h) {
   if(gproduct) {
-    ld v = exp(h[3]) / sqrt(abs(intval(h, Hypc)));
+    ld v = exp(h[3]);
+    if(!in_e2xe()) v /= sqrt(abs(intval(h, Hypc)));
     h[0] *= v;
     h[1] *= v;
     h[2] *= v;
@@ -585,7 +596,19 @@ void handle_animation(ld t) {
     params[pa]->set_cld(val);
     }
 
-  if(embedded_plane && embedded_shift_method_choice != smcNone) {
+  if(isize(anim.frames) == 1) {
+    auto &f = anim.frames[0];
+    View = f.sView; NLP = f.ori;
+    ld ts = t / f.interval;
+    ts = ts * ts * (3 - 2 * ts);
+    ld dist = f.front_distance * ts;
+    while(dist > 0.1) {
+      shift_view(ctangent(2, -0.1)); dist -= 0.1;
+      }
+    shift_view(ctangent(2, -dist));
+    }
+
+  else if(embedded_plane && embedded_shift_method_choice != smcNone) {
     hyperpoint interm = C03;
 
     for(int j=0; j<3; j++) {
@@ -609,6 +632,37 @@ void handle_animation(ld t) {
     rotate_view(inverse(Rot));
     }
 
+  else if(mtwisted || mproduct) {
+    hyperpoint h;
+    for(int j=0; j<4; j++) {
+      vector<ld> values;
+      for(auto& f: anim.frames) {
+        hyperpoint v = f.V*C0;
+        prepare_for_interpolation(v);
+        values.push_back(v[j]);
+        }
+      h[j] = interpolate(values, times, t);
+      }
+    after_interpolation(h);
+    View = gpushxto0(h); NLP = Id;
+
+    transmatrix Rot = Id;
+    for(int j=0; j<3; j++) for(int k=0; k<3; k++) {
+      vector<ld> values;
+      for(auto& f: anim.frames) {
+        transmatrix Rot1 = gpushxto0(f.V*C0) * f.V;
+        auto t = Rot1;
+        if(mproduct) Rot1 = Rot1 * f.ori;
+        println(hlog, kz(t), " -> ", kz(Rot1), " LPU ", nisot::local_perspective_used);
+        values.push_back(Rot1[j][k]);
+        }
+      Rot[j][k] = interpolate(values, times, t);
+      }
+    fix_rotation(Rot);
+
+    rotate_view(inverse(Rot));
+    }
+
   else {
     hyperpoint pts[3];
 
@@ -619,11 +673,12 @@ void handle_animation(ld t) {
           hyperpoint h;
           if(j == 0)
             h = tC0(f.V);
+          auto sm = (hyperbolic || euclid || sphere) ? smIsotropic : gproduct ? smProduct : smGeodesic;
           if(j == 1) {
-            h = tC0(shift_object(f.V, f.ori, ztangent(f.front_distance), (hyperbolic || euclid || sphere) ? smIsotropic : smGeodesic));
+            h = tC0(shift_object(f.V, f.ori, ztangent(f.front_distance), sm));
             }
           if(j == 2) {
-            h = tC0(shift_object(f.V, f.ori, ctangent(1, -f.up_distance), (hyperbolic || euclid || sphere) ? smIsotropic : smGeodesic));
+            h = tC0(shift_object(f.V, f.ori, ctangent(1, -f.up_distance), sm));
             }
           prepare_for_interpolation(h);
           values.push_back(h[i]);
@@ -647,9 +702,17 @@ void handle_animation(ld t) {
   
   View = T * V;
   fixmatrix(View);
-  
+
   if(invalid_matrix(View)) println(hlog, "invalid_matrix ", View, " at t = ", t);
   last_time = t;
+  }
+
+void set_time(ld t) {
+  last_time = HUGE_VAL;
+  last_segment = -1;
+  test_t = 0;
+  playermoved = false;
+  handle_animation(t);
   }
 
 void handle_animation0() {
@@ -740,6 +803,7 @@ auto hooks = arg::add3("-smoothcam", enable_and_show)
     animate_on = true;
     last_time = HUGE_VAL;
     })
+  + arg::add3("-smoothcam-set", [] { arg::shift(); set_time(arg::argf()); })
   + addHook(dialog::hooks_display_dialog, 100, [] () {
     if(current_screen_cfunction() == anims::show) {
       dialog::addItem(XLAT("smooth camera"), 'C'); 

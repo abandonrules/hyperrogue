@@ -374,10 +374,8 @@ void enable() {
   
   vid.linequality = 4;
   enable_canvas();
-  patterns::whichCanvas = 'F';
 
-  colortables['F'][0] = 0x80C080;
-  colortables['F'][1] = 0x80A080;
+  ccolor::set_colors(ccolor::football, {0x80C080, 0x80A080});
   pconf.scale = .3;
   
   vid.use_smart_range = 2;
@@ -438,7 +436,7 @@ auto msc = arg::add3("-analogs", enable)
         [] (presmode mode) {
           slide_url(mode, 'y', "YouTube link (with description)", "https://youtu.be/H7NKhKTjHVE");
           slide_url(mode, 'm', "HyperRogue page about projections", "http://www.roguetemple.com/z/hyper/models.php");
-          setCanvas(mode, '0');
+          setWhiteCanvas(mode);
           if(mode == pmStart) {
             slide_backup(mapeditor::drawplayer);
             slide_backup(vid.use_smart_range);

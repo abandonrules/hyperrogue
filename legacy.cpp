@@ -5,6 +5,12 @@
 namespace hr {
 
 #if CAP_LEGACY
+
+#if HDR
+/** legacy name */
+constexpr eGeometry gRotSpace = gTwistedProduct;
+#endif
+
 namespace shmup {
 
 void scanchar(FILE *f, char& c) {
@@ -206,12 +212,9 @@ EX modecode_t legacy_modecode() {
   if(int(geometry) > 3 || int(variation) > 1) return UNKNOWN;
   if(casual) return UNKNOWN;
   if(bow::weapon) return UNKNOWN;
+  if(use_custom_land_list) return UNKNOWN;
 
-  bool is_default_land_structure =
-    (princess::challenge || tactic::on) ? ls::single() :
-    racing::on ? (land_structure == lsSingle) :
-    yendor::on ? (land_structure == yendor::get_land_structure()) :
-    ls::nice_walls();
+  bool is_default_land_structure = land_structure == get_default_land_structure();
 
   if(!is_default_land_structure && !ls::std_chaos()) return UNKNOWN;
 
@@ -246,6 +249,41 @@ EX modecode_t legacy_modecode() {
   if(numplayers() == 7) mct += (1<<14);
   
   return mct;
+  }
+
+EX void legacy_modecode_read(modecode_t mc) {
+  if(mc >= FIRST_MODECODE) throw hr_exception("not a legacy modecode");
+
+  inv::on = (mc & (1<<11));
+  peace::on = (mc & (1<<12));
+  tour::on = (mc & (1<<13));
+  bool seven = (mc & (1<<14));
+  mc &= (1<<11)-1;
+
+  for(int xcode=0; xcode<42;xcode++) for(int pl=0; pl<6; pl++) if(modecodetable[xcode][pl] == mc) {
+    if(seven) pl = 7; else pl++;
+    multi::players = pl;
+    land_structure = xcode >= 21 ? lsChaos : get_default_land_structure();
+    xcode %= 21;
+    shmup::on = 0; hardcore = false;
+    if(xcode % 3 == 2) shmup::on = true;
+    if(xcode % 3 == 1) hardcore = true;
+    xcode /= 3;
+    geometry = gNormal; variation = eVariation::bitruncated;
+    if(xcode == 1) variation = eVariation::pure;
+    if(xcode == 2) geometry = gEuclid;
+    if(xcode == 3) geometry = gSphere;
+    if(xcode == 4) geometry = gSphere, variation = eVariation::pure;
+    if(xcode == 5) geometry = gElliptic;
+    if(xcode == 6) geometry = gElliptic, variation = eVariation::pure;
+
+    use_custom_land_list = false;
+    bow::weapon = bow::wBlade;
+    casual = false;
+    return;
+    }
+
+  throw hr_exception("legacy code not recognized");
   }
 
 #if CAP_RACING
@@ -372,6 +410,14 @@ int read_legacy_args() {
     if(GDIM == 3) shift_arg_formula(models::rotation_xz);
     if(GDIM == 3) shift_arg_formula(models::rotation_xy2); */
     }
+  else if(argis("-nilh")) {
+    PHASEFROM(2);
+    stop_game();
+    shift();
+    nilv::nil_structure_index = argi() == 8 ? 1 : 0;
+    nilv::set_flags();
+    start_game();
+    }
   else if(argis("-yca")) {
     PHASEFROM(2);
     shift_arg_formula(vid.yshift);
@@ -380,6 +426,66 @@ int read_legacy_args() {
     }
   else return 1;
   return 0;
+  }
+
+struct legacy_flag {
+  char key;
+  int level;
+  debugflag *df;
+  };
+
+vector<legacy_flag> legacy_flags = {
+  // INIT
+  legacy_flag{'i', 1, &debug_init},
+  legacy_flag{'i', 1, &debug_init_music},
+  legacy_flag{'i', 1, &debug_init_graph},
+  legacy_flag{'i', 1, &debug_init_joy},
+  legacy_flag{'i', 1, &debug_init_cells},
+  legacy_flag{'i', 1, &debug_init_config},
+  legacy_flag{'i', 1, &debug_init_font},
+  // MSG
+  legacy_flag{'m', 1, &debug_messages},
+  // WARN
+  legacy_flag{'w', 1, &debug_warnings},
+  legacy_flag{'w', 1, &debug_map_warnings},
+  // ERROR
+  legacy_flag{'e', 1, &debug_errors},
+  legacy_flag{'e', 1, &debug_music_error},
+  legacy_flag{'e', 1, &debug_joy_error},
+  // STEAM
+  legacy_flag{'s', 3, &debug_achievements},
+  // GRAPH
+  legacy_flag{'x', 4, &debug_aura},
+  legacy_flag{'x', 4, &debug_map},
+  legacy_flag{'x', 4, &debug_calcparam},
+  legacy_flag{'x', 4, &debug_graph},
+  legacy_flag{'x', 4, &debug_joy},
+  legacy_flag{'x', 4, &debug_control},
+  // TURN
+  legacy_flag{'u', 3, &debug_turn},
+  // FIELD
+  legacy_flag{'f', 2, &fieldpattern::debug_field},
+  // GEOM
+  legacy_flag{'g', 2, &debug_geometry},
+  legacy_flag{'g', 2, &debug_map_create},
+  legacy_flag{'g', 4, &arcm::debug_archimedean_map},
+  // MEMORY
+  legacy_flag{'b', 4, &debug_memory},
+  legacy_flag{'b', 4, &debug_graph_memory},
+  legacy_flag{'b', 4, &debug_memory_cell},
+  // TIME
+  legacy_flag{'t', 9, &debug_stamps},
+  // GP
+  legacy_flag{'o', 2, &gp::debug_gp},
+  // POLY
+  legacy_flag{'p', 2, &debug_poly},
+  // VERTEX
+  legacy_flag{'v', 9, &debug_vertex}
+  };
+
+void set_legacy_flags(char key = 0, int level = 0, bool val = true) {
+  for(auto& lf: legacy_flags) if((!key || lf.key == key) && lf.level <= level && lf.df)
+    lf.df->enabled = val;
   }
 
 int read_legacy_args_anim() {
@@ -426,6 +532,14 @@ int read_legacy_args_anim() {
       shift_arg_formula(normal_angle);
       }
     }
+  else if(argis("-innerwall")) {
+    PHASEFROM(2);
+    patterns::innerwalls = true;
+    }
+  else if(argis("-noinnerwall")) {
+    PHASEFROM(2);
+    patterns::innerwalls = false;
+    }
   else if(argis("-animrotd")) {
     start_game();
     ma = maRotation;
@@ -456,6 +570,51 @@ int read_legacy_args_anim() {
       vpconf.scale = (1 - vpconf.model_transition) / 2.;
       } */
 /* skiprope:legacy.cpp  pconf.skiprope += skiprope_rotation * t * TAU / period; */
+    }
+  else if(argis("-palpha")) {
+    PHASEFROM(2);
+    #if CAP_GL
+    shift_arg_formula(vid.stereo_param, reset_all_shaders);
+    #else
+    shift_arg_formula(vid.stereo_param);
+    #endif
+    vid.stereo_mode = sPanini;
+    }
+  else if(argis("-salpha")) {
+    PHASEFROM(2);
+    #if CAP_GL
+    shift_arg_formula(vid.stereo_param, reset_all_shaders);
+    #else
+    shift_arg_formula(vid.stereo_param);
+    #endif
+    vid.stereo_mode = sStereographic;
+    }
+  else if(argis("-debf")) {
+    shift();
+    string s = args();
+    for(char c: s) {
+      if(c >= 'a' && c <= 'z')
+        set_legacy_flags(c, 0, true);
+      else if(c >= '0' && c <= '9') {
+        set_legacy_flags(0, 8, false);
+        set_legacy_flags(0, c - '0', true);
+        }
+      else if(c == '+') {
+        if(debugfile) fclose(debugfile);
+        shift();
+        println(hlog, "writing to ", argcs());
+        debugfile = fopen(argcs(), "at");
+        }
+      else if(c == '@') {
+        if(debugfile) fclose(debugfile);
+        shift();
+        println(hlog, "writing to ", argcs());
+        debugfile = fopen(argcs(), "wt");
+        }
+      }
+    }
+  else if(argis("-no-stamp")) {
+    debug_stamps.flip();
     }
   else return 1;
   return 0;

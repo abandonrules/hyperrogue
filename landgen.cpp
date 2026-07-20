@@ -20,6 +20,10 @@ EX eLand lastland;
 
 EX int lastexplore;
 
+EX void update_lastexplore() {
+  lastexplore = shmup::on ? shmup::curtime : turncount;
+  }
+
 EX bool randomPatternsMode = false;
 EX int randompattern[landtypes];
 
@@ -171,8 +175,8 @@ EX void place_elemental_wall(cell *c) {
   else if(c->land == laEEarth) c->wall = waStone;
   }
 
-// automatically adjust monster generation for 3D geometries
-EX int hrand_monster(int x) {
+// automatically adjust monster generation for 3D geometries and custom difficulty
+EX int hrand_monster_in(eLand l, int x) {
   // dual geometry mode is much harder, so generate less monsters to balance it
   if(dual::state) x *= 3;
   // in 3D monster generation depends on the sight range
@@ -180,8 +184,16 @@ EX int hrand_monster(int x) {
     int t = isize(gmatrix);
     if(t > 500) x = int(((long long)(x)) * t / 500);
     }
+  if(use_custom_land_list) {
+    auto diff = custom_land_difficulty[l];
+    if(!diff) return 1000000000;
+    x = x * 100 / diff;
+    if(x == 0) x = 1;
+    }
   return hrand(x);
   }
+
+#define hrand_monster(x) hrand_monster_in(c->land, x)
 
 EX bool is_zebra_trapdoor(cell *c) {
   if(euclid && closed_or_bounded) return false;
@@ -195,7 +207,6 @@ EX bool is_zebra_trapdoor(cell *c) {
   else if(PURE && reg3::exact_rules()) switch(geometry) {
     case gSpace534: {
       if(c->master->fieldval == 0) return true;
-      forCellCM(c1, c) if(c1->master->fieldval == 0) return true;
       return false;
       }
     case gSpace435: {
@@ -222,8 +233,16 @@ EX bool is_zebra_trapdoor(cell *c) {
     return (y&1);
     }
   #if CAP_ARCM
-  else 
+  else
     if(arcm::in()) return hrand(2);
+  #endif
+  else
+    if(arb::in()) return hrand(2);
+  else
+    if(S3 >= OINF) return hrand(2);
+  #if CAP_BT
+  else
+    if(bt::in()) return c->master->distance & 1;
   #endif
   else
     return (randomPatternsMode ? RANDPAT : (zebra40(c)&2));
@@ -249,7 +268,7 @@ EX void gen_eclectic_monster(cell *c) {
   else if(c2->wall == waIcewall)
     c->monst = pick(moWolf, moIceGolem);
   
-  else if(c2->wall == waNone && !c2->monst && hrand(100) < 5) {
+  else if(c2->wall == waNone && !c2->monst && hrand(100) < 5 && !shmup::on) {
     cell *c1 = c;
     c1->monst = moPair;
     c2->monst = moPair;
@@ -280,8 +299,25 @@ EX void gen_baby_tortoise(cell *c) {
   tortoise::babymap[c] = tortoise::getb(c) ^ tortoise::getRandomBits();
   }
 
+EX int rebalance_treasure(int x, int y, eLand l) {
+  int res = ((tactic::on || quotient == 2 || daily::on) ? (y) : inv::on ? min(2*(y),x) : (x));
+  if(use_custom_land_list) res = (res * custom_land_treasure[l] + 50) / 100;
+  res *= ls::ls_mul();
+  return res;
+  }
+
+EX eItem random_curse() {
+  return pick(itCurseWeakness, itCurseDraining, itCurseWater, itCurseFatigue, itCurseRepulsion, itCurseGluttony);
+  }
+
+EX void clear_item(cell *c) {
+  if(c->item == itOrbWater && c->wall == waStrandedBoat)
+    c->wall = waNone;
+  c->item = itNone;
+  }
+
 EX void giantLandSwitch(cell *c, int d, cell *from) {
-  bool fargen = d == 9;
+  bool fargen = d == 9 || (d == 8 && BARLEV == 8);
   switch(c->land) {
 
     case laPrairie: // -------------------------------------------------------------
@@ -536,7 +572,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           // no Plates or Trapdoors in the Princess cell
           if(d < 3 && (c->wall == waClosePlate || c->wall == waOpenPlate || c->wall == waTrapdoor))
             c->wall = waNone;
-          if(d > 1) c->item = itNone;
+          if(d > 1) clear_item(c);
           // the Princess herself
           if(d == 0) {
             c->monst = moPrincess;
@@ -634,9 +670,9 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
             c->wall = waCavewall;
           else c->wall = waCavefloor;
           }
-        else if(a4 || arcm::in() || cryst)
+        else if(a4 || arcm::in() || cryst || bt::in() || S3 >= OINF)
           c->wall = hrand(100) < 50 ? waCavefloor : waCavewall;
-        else if(!BITRUNCATED) {
+        else if(!BITRUNCATED && geometry != gOctagon) {
           if(polarb50(c)) 
             c->wall = waCavewall;
           else c->wall = waCavefloor;
@@ -743,7 +779,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           }
         }
       // seal entrances to the Land of Power.
-      if(d == 7 && ctof(c)) {
+      if(d == 7 && ctof(c) && land_structure != lsLandscape) {
         bool onwall = false;
         for(int i=0; i<c->type; i++) if(c->move(i) && c->move(i)->land == laBarrier)
           onwall = true;
@@ -753,12 +789,15 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           cell *c3 = c2->modmove(c->c.spin(i) + 3);
           if(!c3) continue;
           if(c3->land != laPower && c3->land != laBarrier)
-          if(c2->wall != waFire && c2->wall != waGlass) {
+          if(c2->wall != waEternalFire && c2->wall != waGlass) {
             if(isFire(c)) c->monst = moWitchWinter;
             else if(c->wall == waGlass) c->monst = moWitchGhost;
             else c->monst = moEvilGolem;
             }
           }
+        }
+      if(d == 7 && land_structure == lsLandscape) {
+        forCellEx(c2, c) if(c2->land != laPower) c->wall = waEternalFire;
         }
       ONEMPTY {
         if(hrand(5000+50*items[itPower]) < 1200) {
@@ -811,7 +850,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           }
         else if(WDIM == 3 && hyperbolic && !bt::in())
           c->wall = (c->master->zebraval & 2) ? waVinePlant : waNone;
-        else if(a4 || sphere || arcm::in())
+        else if(a4 || sphere || arcm::in() || bt::in() || arb::in() || S3 >= OINF)
           c->wall = hrand(100) < 50 ? waNone : waVinePlant;
         else {
           int v = emeraldval(c);
@@ -832,6 +871,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
               forCellCM(c2, c) if(emeraldval(c2) == (v^1))
                 c->wall = waVinePlant;
               }
+            if(weirdhyperbolic && cellHalfvine(c)) c->wall = waNone;
             }
           }
         }
@@ -924,11 +964,17 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
     
     case laTrollheim:
       if(fargen) {
-        if(hrand(50000) < (ls::tame_chaos() ? 1000: ls::any_chaos() ?50:5) && c->wall != waBarrier && celldist(c) >= 7 && !safety && !peace::on) {
+        int freq =
+          land_structure == lsVineWalls ? 10000 :
+          ls::wall_chaos() ? 2500 :
+          ls::tame_chaos() ? 1000 :
+          ls::any_chaos() ? 50 :
+          5;
+        if(hrand(50000) < freq && c->wall != waBarrier && celldist(c) >= 7 && !safety && !peace::on) {
           bool okay = true;
           forCellCM(c2, c) forCellCM(c3, c2) forCellCM(c4, c3) forCellCM(c5, c4) {
             cell *cx = ls::any_chaos() ? c3 : c5;
-            if(cx->land != laTrollheim && cx->land != laNone)
+            if(cx->land != laTrollheim && cx->land != laNone && !ls::hv_structure())
               okay = false;
             if(cx->bardir != NODIR) okay = false;
             }
@@ -1226,7 +1272,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
       if(fargen) {
         if(hrand(500) < 15) 
           createArrowTrapAt(c, laTerracotta);
-        if(pseudohept(c) && hrand(100) < 40 && c->wall == waNone && !racing::on) {
+        if(pseudohept_r(c) && hrand(100) < 40 && c->wall == waNone && !racing::on) {
           c->wall = waTerraWarrior;
           c->wparam = terracotta::randterra ? 0 : 3 + hrand(3);
           if(hrand(100) < items[itTerra]-10)
@@ -1268,7 +1314,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
       if(d == 8) {
         bool ok = c->landparam == 0;
         forCellEx(c2, c) if(c2->landparam) ok = false;
-        if(ok && hrand(doCross ?450:15000) < 20 + (2 * items[itMutant] + yendor::hardness()) && !safety) {
+        if(ok && hrand(doCross ?450:15000) < (20 + (2 * items[itMutant] + yendor::hardness())) * ls::ls_mul_big() && !safety) {
           if(!peace::on) c->item = itMutant;
           c->landparam = items[itMutant] + 5 + hrand(11);
           c->wall = waNone;
@@ -1296,6 +1342,12 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
       break;
     
     case laHalloween:
+      if(!closed_or_bounded) {
+        ONEMPTY {
+          if(hrand(1000) < PT(20, 20)) c->item = itTreat;
+          if(hrand(1000) < 20) c->wall = waChasm;
+          }
+        }
       break;
     
     case laWildWest:
@@ -1440,12 +1492,22 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
             c->wall = waSandstone;
           }
         
-        for(int i=0; i<c->type; i++)
-          if(c->move(i) && c->move(i)->land != laStorms && c->move(i)->land != laNone)
-            c->wall = waNone;
+        if(ls::horodisk_structure()) {
+          if(celldistAlt(c) >= horodisk_from) c->wall = waNone;
+          }
+        else if(!ls::voronoi_structure()) {
+          for(int i=0; i<c->type; i++)
+            if(c->move(i) && c->move(i)->land != laStorms && c->move(i)->land != laNone)
+              c->wall = waNone;
+          }
         }
       if(d == BARLEV && randstorm) {
         c->landparam = hrand(1000000);
+        }
+      if(d == 7 && ls::voronoi_structure()) {
+        for(int i=0; i<c->type; i++)
+          if(c->move(i) && c->move(i)->land != laStorms)
+            c->wall = waNone;
         }
       if(d == BARLEV-1 && randstorm) {
         /* static int stormlevel, stormgroup;
@@ -1493,7 +1555,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
       if(fargen) {
         if(randomPatternsMode)
           c->wall = RANDPAT ? ((RANDPATV(laCrossroads) || RANDPATV(laCrossroads2)) ? waAncientGrave : waFreshGrave) : waNone;
-        else if(pseudohept(c)) 
+        else if(pseudohept_r(c))
           c->wall = hrand(5) ? waAncientGrave : waFreshGrave;
         }
       ONEMPTY {
@@ -1526,7 +1588,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
                 c->move(i)->wall = waNone;
               }
             }
-          if(pseudohept(c) && hrand(2)) c->wall = waColumn;
+          if(pseudohept_r(c) && hrand(2)) c->wall = waColumn;
           }
         }
       ONEMPTY {
@@ -1753,7 +1815,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
         }  
       if(d == 7 && c->wall == waSea && hrand_monster(10000) < 20 + items[itPirate] + 2 * yendor::hardness() && !safety)
         c->monst = moCShark;  
-      if(d == 7 && c->wall == waCTree && hrand_monster(GDIM == 2 ? 5000 : 50000) < 100 + items[itPirate] + yendor::hardness())
+      if(d == 7 && c->wall == waCTree && hrand_monster(GDIM == 2 ? 5000 : 50000) < 100 + items[itPirate] + yendor::hardness() && !safety)
         c->monst = moParrot;    
       ONEMPTY {
         if(hrand(1500) < 4 && celldistAlt(c) <= -5 && peace::on && !cryst)
@@ -1791,11 +1853,13 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           }
         }
       ONEMPTY {
-        if(hrand_monster(ls::hv_structure() ? 8000 : 4000) < (peace::on ? 750 : 50 + items[itBabyTortoise]*2 + yendor::hardness() * 6) && !safety) {
+        bool mk21tor = (tortoise::seek() && !((tortoise::getb(c) ^ tortoise::seekbits) & tortoise::mask) && (turncount > tortoise::last21tort + 100));
+        if((mk21tor || hrand_monster(ls::hv_structure() ? 8000 : 4000) < (peace::on ? 750 : 50 + items[itBabyTortoise]*2 + yendor::hardness() * 6)) && !safety) {
           c->monst = moTortoise;
           c->hitpoints = 3;
           auto val = tortoise::getb(c);
           tortoise::emap[c] = val;
+          if (mk21tor) tortoise::last21tort = turncount;
           }
         else if(ls::hv_structure() && hrand(10000) <= 250) {
           c->item = itCompass;
@@ -2035,7 +2099,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
     
     case laHunting:
       if(d == 7 && c->land == laHunting && !racing::on && !safety && !reptilecheat) {
-        if(hrand(1000) < 20) {
+        if(hrand(1000) < 20 * ls::ls_mul_big()) {
           if(openplains(c)) {
             if(hrand(2) == 0) {
               if(!items[itHunting]) {
@@ -2243,11 +2307,11 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           c->monst = moMonkey;
         else if(hrand_monster(80000) < 5 + items[itRuby] + yendor::hardness())
           c->monst = moEagle;
-        else if(pseudohept(c) && c != currentmap->gamestart() && hrand_monster(4000) < 300 + items[itRuby] && !c->monst) {
+        else if(pseudohept_r(c) && c != currentmap->gamestart() && hrand_monster(4000) < (300 + items[itRuby]) * ls::ls_mul_big() && !c->monst) {
           int hardchance = items[itRuby] + yendor::hardness();
           if(hardchance > 25) hardchance = 25;
           bool hardivy = hrand(100) < hardchance;
-          if((cgflags & qFRACTAL) ? buildIvy(c, 0, 2) : hat::in() ?  buildIvy(c, 0, 4) : (hardivy ? buildIvy(c, 1, 9) : buildIvy(c, 0, c->type)) && !peace::on)
+          if(land_structure == lsVineWalls ? buildIvy(c, 0, 2) : (cgflags & qFRACTAL) ? buildIvy(c, 0, 2) : hat::in() ?  buildIvy(c, 0, 4) : (hardivy ? buildIvy(c, 1, 9) : buildIvy(c, 0, c->type)) && !peace::on)
             c->item = itRuby;
           }
         }
@@ -2287,7 +2351,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           int d = -celldistAlt(c);
           if(hrand_monster(2500) < items[itMutant2] + yendor::hardness() - 10 && !reptilecheat)
             c->monst = moRedFox;
-          else if(hrand(100 + d) < d && !reptilecheat)
+          else if(d > 0 && hrand(100 + d) < d && !reptilecheat)
             c->item = itMutant2;          
           }
         }
@@ -2366,7 +2430,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
         if(hrand(1500) < PT(30 + kills[moHexDemon] + kills[moAltDemon] + kills[moMonk] + kills[moPair] + kills[moCrusher], 100) && notDippingFor(itRuins)) {
           c->item = itRuins;
           forCellEx(c2, c) if(c2->monst == moMonk)
-            c->item = itNone;
+            clear_item(c);
           }
         if(hrand_monster(7000) < kf && !c->monst) {
           c->monst = genRuinMonster(c);
@@ -2467,6 +2531,8 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
     case laCrossroads3:
     case laCrossroads4:
     case laCrossroads5:
+    case laCrossroads6:
+    case laMasterCrossroads:
       if(c->wall == waTower) c->land = laCamelot;
       ONEMPTY {
         if(!BITRUNCATED && c->land == laCrossroads5 && hrand(100) < 60)
@@ -2504,7 +2570,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
       if(d == 7) {
         c->wall = waNone;
   
-        c->item = itNone; c->monst = moNone;
+        clear_item(c); c->monst = moNone;
         
         if(hrand(100) < 25)
           c->wall = hrand(2) ? waBigTree : waSmallTree;
@@ -2545,7 +2611,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
           treasure_rate += variant::features[i].rate_change;
           variant::features[i].build(c);
           }
-        if(hrand(2000 - PT(kills[moVariantWarrior] * 5, 250)) < treasure_rate && !c->wall && !c->monst) 
+        if(hrand(max(100, 2000 - PT(kills[moVariantWarrior] * 5, 250))) < treasure_rate && !c->wall && !c->monst)
           c->item = itVarTreasure;
         }
       if(d == 7 && c->wall == waTrapdoor) {
@@ -2616,7 +2682,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
       }
 
     case laCursed: {
-      if(fargen) {
+      if(fargen && c->wall != waRubble) {
         c->wall = waStone;
         for(int i=0; i<3; i++) {
           auto ew = [i] (cell *c1) {
@@ -2652,7 +2718,7 @@ EX void giantLandSwitch(cell *c, int d, cell *from) {
               c->wall = waStone;
             else {
               c->monst = moHexer;
-              c->item = pick(itCurseWeakness, itCurseDraining, itCurseWater, itCurseFatigue, itCurseRepulsion, itCurseGluttony);
+              c->item = random_curse();
               }
             break;
             }
@@ -2870,11 +2936,35 @@ EX void share_land(cell *c, cell *c2) {
   c->land = c2->land;
   }
 
-EX void set_land_for_geometry(cell *c) {
+// odd landscape_div are better
+EX int landscape_div = 25;
 
+EX void set_land_for_geometry(cell *c) {
   if(!c->land && isize(currentlands)) {
     if(land_structure == lsTotalChaos) {
       setland(c, random_land());
+      return;
+      }
+    if(land_structure == lsLandscape) {
+      if(landscape_div <= 0) landscape_div = 1;
+      array<int, 3> a;
+      for(int i=0; i<3; i++) a[i] = getCdata(c, i);
+      auto& ld = landscape_div;
+      auto ld2 = ld * 2;
+      int sh = 0;
+      for(int i=0; i<3; i++) {
+        int x = a[i];
+        x = gmod(x, ld2);
+        if(x >= ld) sh += x - ld;
+        else sh += ld - 1 - x;
+        }
+      for(int i=0; i<3; i++) {
+        if(sh * 2 < ld * 3) a[i] = gdiv(a[i], ld2)*2+1;
+        else a[i] = gdiv(a[i]+ld, ld2)*2;
+        }
+      eLand& l = landscape_lands[make_array(a[0], a[1], a[2])];
+      if(l == laNone) l = random_land();
+      setland(c, l);
       return;
       }
      /* note: Nil patched chaos done in setLandNil */
@@ -2914,6 +3004,7 @@ EX void set_land_for_geometry(cell *c) {
   #endif
   else if(mhybrid) setLandHybrid(c);
   else if(sphere || (euclid && closed_or_bounded)) setLandSphere(c);
+  else if((cgflags & qFRACTAL)) setland(c, specialland);
   else if(euclid) setLandEuclid(c);
   else if(quotient) { setland(c, specialland); setLandQuotient(c); }
   else if(sol) setLandSol(c);
@@ -2947,7 +3038,7 @@ EX void setdist(cell *c, int d, cell *from) {
       }
     }
 
-  if(d <= 10 - getDistLimit()) lastexplore = shmup::on ? shmup::curtime : turncount;
+  if(d <= 10 - getDistLimit()) update_lastexplore();
   
   if(mhybrid) {
     auto wc = hybrid::get_where(c).first;
@@ -2978,7 +3069,7 @@ EX void setdist(cell *c, int d, cell *from) {
       }
     #endif
   
-    if(!c->land && from && (WDIM == 3 || !among(from->land, laBarrier, laElementalWall, laHauntedWall, laOceanWall)) && !quotient && ls::chaoticity() < 60) {
+    if(!c->land && from && (WDIM == 3 || !among(from->land, laBarrier, laElementalWall, laHauntedWall, laOceanWall)) && !quotient && ls::chaoticity() < 60 && land_structure != lsLandscape) {
       if(!hasbardir(c)) setland(c, from->land);
       }
     if(c->land == laTemple && ls::any_order()) setland(c, laRlyeh);
@@ -3001,10 +3092,10 @@ EX void setdist(cell *c, int d, cell *from) {
     }
   
   if(d == BARLEV && c->land == laCanvas)  {
-    color_t col = patterns::generateCanvas(c);
+    color_t col = ccolor::generateCanvas(c);
     c->landparam = col;
     c->wall = canvas_default_wall;
-    if((GDIM == 3 || geom3::flipped) && (col & 0x1000000)) c->wall = waWaxWall;
+    if(col & 0x1000000) c->wall = waWaxWall;
     }
 
   #if CAP_FIELD
@@ -3033,10 +3124,13 @@ EX void setdist(cell *c, int d, cell *from) {
       exploreland[d][c->land]++;
       }
     
-    if(d < BARLEV) for(int i=0; i<c->type; i++) {
-      
-      setdist(createMov(c, i), d+1, c);
-      if(buggyGeneration) return;
+    if(d < BARLEV) {
+      apply_precision_policy(c, from);
+      bool rev = (precision_policy & 1) && currentmap->get_backmap() && hrand(2);
+      for(int i=0; i<c->type; i++) {
+        setdist(createMov(c, rev ? (c->type-1-i) : i), d+1, c);
+        if(buggyGeneration) return;
+        }
       }
     
     int eqlevel = max(BARLEV-2, 7);
@@ -3126,5 +3220,7 @@ EX void setdist(cell *c, int d, cell *from) {
     mapeditor::applyModelcell(c);
 #endif
   }
+
+#undef hrand_monster
 
 }

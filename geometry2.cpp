@@ -201,8 +201,10 @@ transmatrix hrmap_standard::relative_matrixh(heptagon *h2, heptagon *h1, const h
   }
 
 EX shiftmatrix &ggmatrix(cell *c) {
-  shiftmatrix& t = gmatrix[c];
-  if(t[LDIM][LDIM] == 0) {
+  auto& t = gmatrix[c];
+  if(t.is_null) {
+    if(sl2) return t = twist::nmul(shiftless(actual_view_transform * View), twist::relative_shiftmatrix(c, centerover));
+    t.is_null = false;
     t.T = actual_view_transform * View * calc_relative_matrix(c, centerover, C0);
     t.shift = 0;
     }
@@ -321,7 +323,8 @@ void virtualRebase_cell(cell*& base, T& at, const U& check) {
 template<class T, class U> 
 void virtualRebase(cell*& base, T& at, const U& check) {
 
-  if(nil && WDIM == 3) {
+  if(nil && WDIM == 3 && nilv::nil_structure_index != 2 && !mhybrid) {
+    /** todo: implement for hex nil too */
     hyperpoint h = check(at);
     auto step = [&] (int i) {
       at = currentmap->adj(base, (i+S7/2) % S7) * at;
@@ -535,7 +538,7 @@ transmatrix hrmap_standard::adj(cell *c, int i) {
     static bool first = true;
     if(h == h1)
       return T * U;
-    else if(gp::do_adjm) {
+    else if(gp::do_adjm && !fake::in()) {
       if(gp::gp_adj.count(make_pair(c,i))) {
         return T * gp::get_adj(c,i) * U;
         }
